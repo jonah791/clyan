@@ -1,48 +1,88 @@
-# Clyan — AI-driven Disk Cleaner
+# Clyan — 给 AI Agent 用的磁盘清理工具
 
-A command-line disk cleaning tool designed to be driven by AI agents via CLI or MCP protocol.
+一个由 AI agent 驱动的命令行磁盘清理工具。你可以通过 CLI 或 MCP 协议与它交互，说一句话就能完成全盘扫描、垃圾识别、空间释放。
 
-## Features
+## 功能
 
-- **26+ cache providers**: npm, pip, cargo, Go, Docker, IDE caches, browser caches, Windows system caches
-- **Duplicate file detection**: 3-phase (size → partial hash → full hash)
-- **Windows deep cleaning**: WinSxS, Windows.old, Driver Store, Delivery Optimization, DISM
-- **Three-tier safety**: Safe / Caution / Unsafe classification with protected path system
-- **Recycle bin + undo**: All deletions go to recycle bin by default, with SQLite history
-- **MCP server**: AI agents can call tools directly via Model Context Protocol
-- **Parallel fast mode**: ThreadPoolExecutor for concurrent deletion
+- **26+ 缓存检测器**：npm / pip / cargo / Go / Docker / IDE 缓存 / 浏览器缓存 / Windows 系统缓存 / 开发垃圾
+- **重复文件检测**：三步检测（按大小分组 → BLAKE2b 部分哈希 → 全量哈希）
+- **Windows 深度清理**：WinSxS 组件存储、Windows.old 旧系统、DriverStore 驱动备份、Delivery Optimization 缓存、DISM 清理
+- **三级安全体系**：Safe（安全可删）/ Caution（谨慎，可能需重建）/ Unsafe（不可删，含配置/凭据），配合保护路径系统和豁免规则
+- **回收站 + 历史回溯**：默认走回收站，SQLite 记录每次操作，支持按 ID 撤销
+- **MCP 服务器**：AI agent 可通过 Model Context Protocol 直接调用所有工具（无需 CLI subprocess）
+- **并行高速模式**：ThreadPoolExecutor 并发删除 + ProcessPoolExecutor 并发扫描
+- **安全边界**：`%APPDATA%\npm` 等全局包管理器目录受保护，不被误清理
 
-## Quick Start
+## 快速开始
 
 ```bash
 pip install -e .
+# 全盘快速体检
 clyan scan quick C:\
+# 只看大件开发垃圾
 clyan scan dev-garbage C:\ --min-size-mb 100
+# 预览清理结果
 clyan clean --items items.json --dry-run
+# 执行清理（大文件直接删，不走回收站）
 clyan clean --items items.json --fast
 ```
 
-## Commands
+## 命令
 
-| Command | Description |
-|---------|-------------|
-| `scan space <path>` | Directory space analysis |
-| `scan dev-garbage <path>` | Developer cache garbage |
-| `scan browsers` | Browser caches |
-| `scan system` | Windows temp + recycle bin |
-| `scan duplicates <path>` | Duplicate file detection |
-| `scan quick <path>` | All scans combined |
-| `clean --items <file>` | Preview or execute cleanup |
-| `history` | View cleanup history |
-| `undo <id>` | Mark operation as undone |
-| `mcp` | Start MCP server |
+| 命令 | 说明 |
+|------|------|
+| `scan space <path>` | 目录空间分析 |
+| `scan dev-garbage <path>` | 开发者缓存/垃圾 |
+| `scan browsers` | 浏览器缓存 |
+| `scan system` | Windows 临时文件 + 回收站 |
+| `scan duplicates <path>` | 重复文件检测 |
+| `scan quick <path>` | 一键全量扫描 |
+| `clean --items <file>` | 预览或执行清理 |
+| `history` | 查看清理历史 |
+| `undo <id>` | 撤销某次清理 |
+| `mcp` | 启动 MCP 服务器 |
 
-## MCP Server
+## MCP 服务器
 
-Start the MCP server for AI agent integration:
+启动 MCP 服务器后，AI agent 可以通过 stdio 传输协议直接调用所有功能：
 
 ```bash
 clyan mcp
 ```
 
-The server exposes all scan and clean operations as MCP tools via stdio transport.
+暴露的 MCP 工具：
+- `scan_quick` / `scan_dev_garbage` / `scan_browsers` / `scan_system` / `scan_duplicates`
+- `clean_preview` / `clean_execute`
+- `history`
+
+## 安全体系
+
+采用 **三层危险等级** + **保护路径 + 豁免规则** 的组合策略：
+
+| 等级 | 含义 | 示例 |
+|------|------|------|
+| 🟢 safe | 可安全删除，自动重建 | `node_modules/`, `.cache/`, `Temp/`, NGEN 镜像 |
+| 🟡 caution | 注意 — 可能需重装或重建 | `.venv/`, VS Code 扩展, `.dart_tool` |
+| 🔴 unsafe | 不可删 — 含配置/凭据/数据 | `.ssh/`, `.git/`, `Desktop/`, `全局 npm` |
+
+保护路径（31条）：`C:\Windows`、`C:\Program Files`、`%APPDATA%\npm`、`Desktop`、`Documents`、`.ssh`、`.git`……
+
+豁免规则（34条）：`node_modules/`（排除全局 npm）、`Temp/`、`.cache/`、`assembly/`、`dist/`（排除 npm 内）……
+
+## 参考项目
+
+Clyan 的设计和实现参考了以下开源项目：
+
+| 项目 | 参考内容 |
+|------|---------|
+| [TurboClean](https://github.com/ChenAI-TGF/TurboClean) | 多进程磁盘扫描框架 |
+| [Czkawka](https://github.com/qarmin/czkawka) | 重复文件检测策略、临时文件扫描 |
+| [ddh](https://github.com/darakian/ddh) | 轻量重复文件查找 + JSON 输出格式 |
+| [bleachbit](https://github.com/bleachbit/bleachbit) | 安全边界模型、保护路径 XML、系统清理 |
+| [cache-commander](https://github.com/juliensimon/cache-commander) | Provider 模块化架构、MCP 集成、SafetyLevel 设计 |
+| [null-e](https://github.com/us/null-e) | 50+ 缓存类型覆盖、Windows 支持 |
+| [dev-cleaner](https://github.com/jemishavasoya/dev-cleaner) | Windows 全栈开发者缓存路径 |
+| [dustoff](https://github.com/westpoint-io/dustoff) | JS/TS 构建产物清理 |
+| [modclean](https://github.com/ModClean/modclean) | node_modules 深度瘦身 |
+| [space](https://github.com/emilevr/space) | Rust 磁盘分析器 TUI/CLI 设计 |
+| [cull](https://github.com/legostin/cull) | 交互式 TUI 磁盘分析 |
