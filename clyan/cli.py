@@ -8,6 +8,7 @@ from .scan.dev_garbage import DevGarbageScanner
 from .scan.browser_cache import BrowserCacheScanner
 from .scan.system import SystemScanner
 from .scan.duplicates import DuplicateScanner
+from .scan.packages import PackagesScanner
 from .clean.preview import generate_preview
 from .clean.execute import delete_items
 from .core.history import get_history, get_operation, mark_undone
@@ -81,6 +82,13 @@ def cmd_mcp(args):
         anyio.run(mcp_main)
     except ImportError as e:
         _out({"error": f"MCP dependencies not available: {e}"})
+
+
+def cmd_scan_packages(args):
+    s = PackagesScanner()
+    result = s.scan()
+    d = result.to_dict()
+    _out(d)
 
 
 def cmd_scan_quick(args):
@@ -197,6 +205,10 @@ def build_parser() -> argparse.ArgumentParser:
     sp_dup = sp_sub.add_parser("duplicates", help="find duplicate files by size+hash")
     sp_dup.add_argument("path", nargs="?", default=os.environ.get("USERPROFILE", "."))
 
+    sp_pkgs = sp_sub.add_parser("packages", help="scan installed package environments (conda, scoop, cargo, go, npm)")
+    sp_pkgs.add_argument("--json", dest="json_mode", action="store_true",
+                         help="output raw items array (pipeable to clyan clean --stdin)")
+
     sp_quick = sp_sub.add_parser("quick", help="run all scans")
     sp_quick.add_argument("path", nargs="?", default=os.environ.get("USERPROFILE", "."))
     sp_quick.add_argument("--top", type=int, default=0, help="only show top N biggest items across all scans")
@@ -233,6 +245,7 @@ def main():
             "browsers": cmd_scan_browsers,
             "system": cmd_scan_system,
             "duplicates": cmd_scan_duplicates,
+            "packages": cmd_scan_packages,
             "quick": cmd_scan_quick,
         }
         fn = dispatch.get(args.scan_type)
