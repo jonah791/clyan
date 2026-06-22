@@ -99,7 +99,12 @@ class DevGarbageScanner(BaseScanner):
             if is_protected(item.path):
                 item.safety = DangerLevel.UNSAFE
 
-        all_items.sort(key=lambda x: x.size, reverse=True)
+        # Dedup by path (keep largest size for duplicates)
+        seen: dict[str, CacheItem] = {}
+        for item in all_items:
+            if item.path not in seen or item.size > seen[item.path].size:
+                seen[item.path] = item
+        all_items = sorted(seen.values(), key=lambda x: x.size, reverse=True)
 
         # Build per-provider summaries
         by_provider: dict[str, list[CacheItem]] = {}

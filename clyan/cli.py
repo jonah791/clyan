@@ -40,7 +40,10 @@ def cmd_scan_dev(args):
         d["item_count"] = len(d["items"])
         d["total_size"] = sum(i["size"] for i in d["items"])
         d["total_size_human"] = _fmt(d["total_size"])
-    _out(d)
+    if args.json_mode:
+        sys.stdout.write(json.dumps(d["items"], ensure_ascii=False) + "\n")
+    else:
+        _out(d)
 
 
 def _fmt(size: int) -> str:
@@ -108,6 +111,16 @@ def cmd_scan_quick(args):
     _out(summary)
 
 
+def _filter_by_safety(items: list[dict], level: str) -> list[dict]:
+    allowed = {"safe", "caution", "unsafe"}
+    level = level.lower()
+    if level not in allowed:
+        return items
+    levels = {"safe": 0, "caution": 1, "unsafe": 2}
+    threshold = levels[level]
+    return [i for i in items if levels.get(i.get("safety", "unsafe"), 2) >= threshold]
+
+
 def cmd_clean(args):
     if args.items:
         if os.path.isfile(args.items):
@@ -124,6 +137,12 @@ def cmd_clean(args):
 
     if not isinstance(items, list):
         items = items.get("items", items.get("valid_items", []))
+
+    if args.safety:
+        items = _filter_by_safety(items, args.safety)
+        if not items:
+            _out({"error": f"no items match safety level: {args.safety}"})
+            return
 
     if args.dry_run:
         preview = generate_preview(items)
@@ -168,6 +187,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp_dev = sp_sub.add_parser("dev-garbage", help="find developer cache garbage")
     sp_dev.add_argument("path", nargs="?", default=os.environ.get("USERPROFILE", "."))
     sp_dev.add_argument("--min-size-mb", type=int, default=0, help="only show items >= this many MB")
+    sp_dev.add_argument("--json", dest="json_mode", action="store_true",
+                        help="output raw items array (pipeable to clyan clean --stdin)")
 
     sp_browsers = sp_sub.add_parser("browsers", help="find browser caches")
 
@@ -186,6 +207,8 @@ def build_parser() -> argparse.ArgumentParser:
     cp.add_argument("--dry-run", action="store_true", help="preview only, no delete")
     cp.add_argument("--permanent", action="store_true", help="skip trash, permanent delete")
     cp.add_argument("--fast", action="store_true", help="direct delete for large items (default: recycle bin)")
+    cp.add_argument("--safety", choices=["safe", "caution", "unsafe"],
+                    help="minimum safety level (default: all). safe < caution < unsafe")
 
     hp = sub.add_parser("history", help="view cleanup history")
     hp.add_argument("--id", type=int, help="operation ID to inspect")

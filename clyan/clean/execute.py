@@ -39,7 +39,22 @@ def _delete_one(path: str, size: int, use_trash: bool, fast: bool) -> dict:
                 os.remove(path)
             return {"path": path, "size": size, "success": True, "method": "direct"}
     except Exception as e:
-        return {"path": path, "size": size, "success": False, "error": str(e)}
+        err_msg = str(e)
+        # Map common WinError codes to human-readable messages
+        known = {
+            "-2147024809": "系统保护路径，拒绝访问（可能需要管理员权限或 DISM 清理）",
+            "-2144927704": "路径过长（尝试 --fast 直接删除）",
+            "-2144927711": "权限不足或文件正在使用中（尝试 --fast 或以管理员身份运行）",
+            "access is denied": "权限不足，以管理员身份运行重试",
+            "file exists": "路径已存在",
+            "directory not empty": "目录非空",
+            "permission denied": "权限不足",
+        }
+        for code, hint in known.items():
+            if code in err_msg.lower():
+                err_msg = hint
+                break
+        return {"path": path, "size": size, "success": False, "error": err_msg}
 
 
 def delete_items(items: list[dict], use_trash: bool = True, fast: bool = False) -> dict:

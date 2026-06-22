@@ -30,7 +30,7 @@ def _scan_rust_caches(root: str) -> list[CacheItem]:
             results.append(CacheItem(
                 path=cargo_registry, size=sz, provider="rust",
                 label="cargo registry (crates + index)",
-                safety=SafetyLevel.SAFE,
+                safety=SafetyLevel.CAUTION,
                 extra={"type": "cargo_registry"},
             ))
 
