@@ -16,19 +16,20 @@ class DangerLevel(Enum):
 
     @staticmethod
     def for_dirname(name: str) -> "DangerLevel":
-        safe_dirs = {"node_modules", "__pycache__", ".mypy_cache", ".pytest_cache",
-                      ".ruff_cache", ".cache", ".next", "dist", ".turbo", ".parcel-cache",
-                      "coverage", ".output", ".nuxt", ".svelte-kit", "target",
-                      "build", "out", "npm_cache", "pip_cache",
+        safe_dirs = {"__pycache__", ".mypy_cache", ".pytest_cache",
+                      ".ruff_cache", ".cache", ".parcel-cache",
+                      "coverage", "npm_cache", "pip_cache",
                       "bun_cache", "go_cache", "pub_cache",
                       "thumbnail_cache", "system_temp", "recycle_bin",
-                      ".expo", ".gradle"}
-        caution_dirs = {".venv", "venv", ".env", "env", ".direnv",
+                      ".gradle"}
+        caution_dirs = {"node_modules", ".venv", "venv", ".env", "env", ".direnv",
                         "vscode_extensions", "vscode", "jetbrains",
                         ".dart_tool", ".fvm", "docker", "android_studio",
                         "vsstudio", "cargo_registry", "dotnet_ngen",
                         "browser_cache", "delivery_opt", "font_cache",
-                        "prefetch", "windows_update"}
+                        "prefetch", "windows_update",
+                        "target", "build", "dist", "out",
+                        ".next", ".turbo", ".nuxt", ".svelte-kit", ".expo"}
         if name in safe_dirs:
             return DangerLevel.SAFE
         if name in caution_dirs:
