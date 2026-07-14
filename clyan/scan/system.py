@@ -54,7 +54,57 @@ def _get_windows_temp() -> list[CacheItem]:
     return results
 
 
+def _scan_temp_breakdown() -> list[CacheItem]:
+    """Deep-scan Temp to show largest subdirectories inside.
+
+    Identifies known orphan patterns (pip-unpack-*, npm-*, tmp-*)
+    left behind by crashed or interrupted processes.
+    """
+    results = []
+    temp = os.environ.get("TEMP", "")
+    if not temp or not os.path.isdir(temp):
+        return results
+
+    orphan_patterns = ("pip-unpack-", "npm-", "tmp-")
+    items = []
+    try:
+        with os.scandir(temp) as it:
+            for e in it:
+                try:
+                    if not e.is_dir(follow_symlinks=False):
+                        continue
+                    sz = dir_total(e.path)
+                    if sz == 0:
+                        continue
+                    name = e.name
+                    extra: dict = {"type": "temp_subdir"}
+
+                    # Detect known orphan patterns
+                    if any(name.startswith(p) for p in orphan_patterns):
+                        extra["orphan"] = True
+                        extra["orphan_type"] = "pip" if name.startswith("pip-unpack") else "other_tmp"
+
+                    if sz >= 10 * 1024 * 1024:  # Only items >= 10 MB
+                        items.append((sz, name, e.path, extra))
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    items.sort(key=lambda x: -x[0])
+    for sz, name, path, extra in items[:15]:
+        results.append(CacheItem(
+            path=path, size=sz, provider="system_temp_deep",
+            label=f"Temp: {name}", safety=DangerLevel.SAFE, extra=extra,
+        ))
+
+    return results
+
+
 class SystemScanner(BaseScanner):
+    def __init__(self, deep_temp: bool = True):
+        self.deep_temp = deep_temp
+
     def scan(self) -> ScanResult:
         result = ScanResult()
         start = time.time()
@@ -63,6 +113,12 @@ class SystemScanner(BaseScanner):
         for item in temp_items:
             result.items.append(item.to_dict())
             result.total_size += item.size
+
+        # Deep Temp breakdown: largest subdirs inside Temp
+        if self.deep_temp:
+            for item in _scan_temp_breakdown():
+                result.items.append(item.to_dict())
+                result.total_size += item.size
 
         try:
             rb_size = _get_recycle_bin_size()

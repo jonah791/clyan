@@ -4,6 +4,7 @@ Combines multiple signals into a 0.0–1.0 score and a human-readable reason.
 """
 
 from __future__ import annotations
+import os
 
 from ..core.config import DangerLevel
 
@@ -19,6 +20,9 @@ _KNOWN_SAFE = {
     "cache2", "delivery_opt", "font_cache", "prefetch",
     "NativeImages_v4", "NativeImages_v2",
 }
+
+# ── Orphan temp dir prefixes (pip-left-behind temp dirs = absolute garbage) ──
+_ORPHAN_PREFIXES = ("pip-unpack-", "npm-", "tmp-")
 
 
 def compute(item: dict) -> tuple[float, list[str]]:
@@ -56,7 +60,7 @@ def compute(item: dict) -> tuple[float, list[str]]:
     else:
         reasons.append("年龄未知")
 
-    # 3. Tool installed (weight 20%) — orphans get a big boost
+    # 3. Tool installed (weight 20%)
     tool_ok = item.get("tool_installed", True)
     if tool_ok is False:
         score += 20.0
@@ -64,16 +68,28 @@ def compute(item: dict) -> tuple[float, list[str]]:
     else:
         reasons.append("工具仍在系统中")
 
-    # 4. Known-safe directory name (weight 10%)
+    # 4. Known-safe directory name or orphan pattern (weight 10%)
     path = item.get("path", "")
+    basename = os.path.basename(path).lower() if path else ""
     path_lower = path.lower().replace("\\", "/")
     parts = path_lower.split("/")
     is_known = any(p in _KNOWN_SAFE for p in parts)
+    is_orphan_name = any(basename.startswith(p) for p in _ORPHAN_PREFIXES)
+
     if is_known:
         score += 10.0
         reasons.append("已知安全缓存目录名")
+    elif is_orphan_name:
+        score += 10.0
+        reasons.append("孤儿临时目录（pip 等残留）")
     else:
         reasons.append("非常见缓存目录")
+
+    # 5. Explicit orphan flag (weight 10%) — from deep temp scan
+    orphan_flag = item.get("orphan", False)
+    if orphan_flag:
+        score += 10.0
+        reasons.append("已标记为孤儿缓存")
 
     return round(min(score / 100.0, 1.0), 2), reasons
 

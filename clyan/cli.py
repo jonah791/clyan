@@ -9,6 +9,7 @@ from .scan.browser_cache import BrowserCacheScanner
 from .scan.system import SystemScanner
 from .scan.duplicates import DuplicateScanner
 from .scan.packages import PackagesScanner
+from .scan.disk_summary import scan_disk
 from .clean.preview import generate_preview
 from .clean.execute import delete_items
 from .core.history import get_history, get_operation, mark_undone
@@ -49,14 +50,7 @@ def cmd_scan_dev(args: argparse.Namespace) -> None:
         _out(d)
 
     if args.explain:
-        # Show confidence breakdown when --explain is used with scan
-        items_with_conf = d.get("items", [])
-        from .utils.staleness import get_age_days, cache_type_installed
-        from .utils.confidence import compute_and_attach
-        for item in items_with_conf:
-            compute_and_attach(item)
-        confidence_summary = _summarize_confidence(items_with_conf)
-        _out(confidence_summary)
+        d["confidence_summary"] = _summarize_confidence(d.get("items", []))
 
 
 
@@ -114,7 +108,25 @@ def cmd_scan_quick(args: argparse.Namespace) -> None:
         all_items.sort(key=lambda x: x.get("size", 0), reverse=True)
         summary["top_items"] = all_items[:args.top]
 
+    # Attach disk summary
+    try:
+        disk_result = scan_disk(args.path)
+        disk_dict = disk_result.to_dict()
+        extra = disk_dict.get("extra", {})
+        if "disk" in extra:
+            summary["disk"] = extra["disk"]
+        if "reclaimable" in extra:
+            summary["reclaimable"] = extra["reclaimable"]
+    except Exception:
+        pass
+
     _out(summary)
+
+
+def cmd_scan_disk(args: argparse.Namespace) -> None:
+    reset_dir_total_cache()
+    result = scan_disk(args.path)
+    _out(result.to_dict())
 
 
 def _filter_by_safety(items: list[dict], level: str) -> list[dict]:
@@ -273,6 +285,10 @@ def build_parser() -> argparse.ArgumentParser:
     sp_quick.add_argument("--top", type=int, default=0,
                           help="only show top N biggest items across all scans")
 
+    sp_disk = sp_sub.add_parser("disk", help="disk usage summary: capacity + top dirs + reclaimable")
+    sp_disk.add_argument("path", nargs="?", default="C:\\",
+                         help="drive or directory path (default: C:\)")
+
     cp = sub.add_parser("clean", help="preview or execute cleanup")
     cp.add_argument("--items", help="path to JSON file or JSON string with items")
     cp.add_argument("--stdin", action="store_true", help="read items JSON from stdin")
@@ -314,6 +330,7 @@ def main() -> None:
             "duplicates": cmd_scan_duplicates,
             "packages": cmd_scan_packages,
             "quick": cmd_scan_quick,
+            "disk": cmd_scan_disk,
         }
         fn = dispatch.get(args.scan_type)
         if fn:
