@@ -241,13 +241,6 @@ def danger_for_path(path: str) -> DangerLevel:
     return DangerLevel.UNSAFE
 
 
-SAFE_DELETE_DEFAULTS = {
-    "use_trash": True,
-    "max_items_preview": 200,
-    "confirm_threshold_gb": 1.0,
-}
-
-
 def get_protected_summary() -> dict:
     _init()
     return {

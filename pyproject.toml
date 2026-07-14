@@ -7,6 +7,15 @@ name = "clyan"
 version = "0.1.0"
 description = "AI-driven disk cleaner"
 requires-python = ">=3.10"
+dependencies = [
+    "send2trash>=2.0",
+    "mcp>=1.0",
+    "anyio>=4.0",
+    "platformdirs>=3.0",
+]
+
+[project.optional-dependencies]
+mcp = ["mcp>=1.0", "anyio>=4.0"]
 
 [project.scripts]
 clyan = "clyan.cli:main"

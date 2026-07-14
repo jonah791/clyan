@@ -2,17 +2,23 @@ import os
 import json
 import sqlite3
 import datetime
+from pathlib import Path
 from typing import Optional
 
+import platformdirs
 
-_DB_PATH = None
+from ..utils.size import format_size
+
+
+_DB_PATH: Optional[str] = None
 
 
 def _get_db() -> str:
     global _DB_PATH
     if _DB_PATH is None:
-        _DB_PATH = os.path.join(os.path.dirname(__file__), "..", "clyan_history.db")
-    return os.path.abspath(_DB_PATH)
+        data_dir = Path(platformdirs.user_data_dir("clyan", ensure_exists=True))
+        _DB_PATH = str(data_dir / "clyan_history.db")
+    return _DB_PATH
 
 
 def _conn() -> sqlite3.Connection:
@@ -38,7 +44,7 @@ def _conn() -> sqlite3.Connection:
 def record_clean(items: list[dict], total_size: int, action: str = "delete") -> int:
     conn = _conn()
     now = datetime.datetime.now().isoformat()
-    summary = f"deleted {len(items)} items, {_fmt(total_size)}"
+    summary = f"deleted {len(items)} items, {format_size(total_size)}"
     cursor = conn.execute(
         "INSERT INTO clean_history (timestamp, action, summary, items_json, total_size, item_count) VALUES (?, ?, ?, ?, ?, ?)",
         (now, action, summary, json.dumps(items), total_size, len(items)),
@@ -77,11 +83,3 @@ def mark_undone(op_id: int) -> bool:
     return affected
 
 
-def _fmt(size: int) -> str:
-    suffixes = ["B", "KB", "MB", "GB", "TB"]
-    idx = 0
-    v = float(size)
-    while v >= 1024 and idx < len(suffixes) - 1:
-        v /= 1024
-        idx += 1
-    return f"{v:.2f} {suffixes[idx]}"

@@ -3,26 +3,13 @@ import time
 import glob
 from ..utils.scanner_base import ScanResult, BaseScanner
 from ..utils.size import format_size
+from ..utils.dirtree import dir_total
 
 
-def _dir_total(path):
-    total = 0
-    try:
-        with os.scandir(path) as it:
-            for e in it:
-                try:
-                    if e.is_file(follow_symlinks=False):
-                        total += e.stat().st_size
-                    elif e.is_dir(follow_symlinks=False):
-                        total += _dir_total(e.path)
-                except Exception:
-                    pass
-    except Exception:
-        pass
-    return total
 
 
-def _scan_conda():
+
+def _scan_conda() -> list[dict]:
     items = []
     for conda_root in (
         os.environ.get("CONDA_ROOT", ""),
@@ -32,7 +19,7 @@ def _scan_conda():
     ):
         if not conda_root or not os.path.isdir(conda_root):
             continue
-        base_size = _dir_total(conda_root)
+        base_size = dir_total(conda_root)
         items.append({
             "name": "miniconda3 (base)",
             "path": conda_root,
@@ -46,7 +33,7 @@ def _scan_conda():
             for env in sorted(os.listdir(envs_dir)):
                 env_path = os.path.join(envs_dir, env)
                 if os.path.isdir(env_path):
-                    sz = _dir_total(env_path)
+                    sz = dir_total(env_path)
                     if sz > 10 * 1024 * 1024:
                         items.append({
                             "name": f"conda env: {env}",
@@ -60,7 +47,7 @@ def _scan_conda():
     return items
 
 
-def _scan_scoop():
+def _scan_scoop() -> list[dict]:
     items = []
     scoop_dir = os.path.join(os.environ.get("USERPROFILE", ""), "scoop")
     if not os.path.isdir(scoop_dir):
@@ -70,7 +57,7 @@ def _scan_scoop():
         for app in sorted(os.listdir(apps_dir)):
             app_path = os.path.join(apps_dir, app)
             if os.path.isdir(app_path):
-                sz = _dir_total(app_path)
+                sz = dir_total(app_path)
                 if sz > 10 * 1024 * 1024:
                     items.append({
                         "name": f"scoop: {app}",
@@ -83,14 +70,14 @@ def _scan_scoop():
     return items
 
 
-def _scan_cargo():
+def _scan_cargo() -> list[dict]:
     items = []
     cargo_root = os.path.join(os.environ.get("USERPROFILE", ""), ".cargo")
     if not os.path.isdir(cargo_root):
         return items
     bin_dir = os.path.join(cargo_root, "bin")
     if os.path.isdir(bin_dir):
-        sz = _dir_total(bin_dir)
+        sz = dir_total(bin_dir)
         if sz > 0:
             items.append({
                 "name": "cargo installed binaries",
@@ -102,7 +89,7 @@ def _scan_cargo():
             })
     registry = os.path.join(cargo_root, "registry")
     if os.path.isdir(registry):
-        sz = _dir_total(registry)
+        sz = dir_total(registry)
         if sz > 10 * 1024 * 1024:
             items.append({
                 "name": "cargo registry (crates + index)",
@@ -115,14 +102,14 @@ def _scan_cargo():
     return items
 
 
-def _scan_go():
+def _scan_go() -> list[dict]:
     items = []
     go_root = os.path.join(os.environ.get("USERPROFILE", ""), "go")
     if not os.path.isdir(go_root):
         return items
     go_bin = os.path.join(go_root, "bin")
     if os.path.isdir(go_bin):
-        sz = _dir_total(go_bin)
+        sz = dir_total(go_bin)
         if sz > 0:
             items.append({
                 "name": "go installed binaries",
@@ -134,7 +121,7 @@ def _scan_go():
             })
     pkg = os.path.join(go_root, "pkg")
     if os.path.isdir(pkg):
-        sz = _dir_total(pkg)
+        sz = dir_total(pkg)
         if sz > 10 * 1024 * 1024:
             items.append({
                 "name": "go module cache",
@@ -147,12 +134,12 @@ def _scan_go():
     return items
 
 
-def _scan_npm_global():
+def _scan_npm_global() -> list[dict]:
     items = []
     appdata = os.environ.get("APPDATA", "")
     npm_global = os.path.join(appdata, "npm", "node_modules")
     if os.path.isdir(npm_global):
-        sz = _dir_total(npm_global)
+        sz = dir_total(npm_global)
         if sz > 10 * 1024 * 1024:
             items.append({
                 "name": "npm global packages",

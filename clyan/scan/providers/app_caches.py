@@ -1,23 +1,10 @@
 import os
 import glob
 from . import CacheItem, SafetyLevel, register
+from ...utils.dirtree import dir_total
 
 
-def _dir_total(path: str) -> int:
-    total = 0
-    try:
-        with os.scandir(path) as it:
-            for e in it:
-                try:
-                    if e.is_file(follow_symlinks=False):
-                        total += e.stat().st_size
-                    elif e.is_dir(follow_symlinks=False):
-                        total += _dir_total(e.path)
-                except Exception:
-                    pass
-    except Exception:
-        pass
-    return total
+
 
 
 def _scan_discord(root: str) -> list[CacheItem]:
@@ -33,7 +20,7 @@ def _scan_discord(root: str) -> list[CacheItem]:
             for sub in ["Cache", "Code Cache", "GPUCache", "Local Storage"]:
                 p = os.path.join(base, sub)
                 if os.path.isdir(p):
-                    sz = _dir_total(p)
+                    sz = dir_total(p)
                     if sz > 0:
                         results.append(CacheItem(
                             path=p, size=sz, provider="app_cache",
@@ -53,7 +40,7 @@ def _scan_slack(root: str) -> list[CacheItem]:
                      "Local Storage", "Session Storage", "blob_storage"]:
             p = os.path.join(slack_dir, sub)
             if os.path.isdir(p):
-                sz = _dir_total(p)
+                sz = dir_total(p)
                 if sz > 0:
                     results.append(CacheItem(
                         path=p, size=sz, provider="app_cache",
@@ -78,7 +65,7 @@ def _scan_teams(root: str) -> list[CacheItem]:
                          "IndexedDB", "tmp"]:
                 p = os.path.join(base, sub)
                 if os.path.isdir(p):
-                    sz = _dir_total(p)
+                    sz = dir_total(p)
                     if sz > 0:
                         results.append(CacheItem(
                             path=p, size=sz, provider="app_cache",
@@ -99,7 +86,7 @@ def _scan_wechat(root: str) -> list[CacheItem]:
             for sub in ["Cache", "Video", "Image", "File", "Data"]:
                 p = os.path.join(base, sub)
                 if os.path.isdir(p):
-                    sz = _dir_total(p)
+                    sz = dir_total(p)
                     if sz > 0:
                         results.append(CacheItem(
                             path=p, size=sz, provider="app_cache",
@@ -119,7 +106,7 @@ def _scan_zoom(root: str) -> list[CacheItem]:
             for sub in ["cache", "data", "downloads", "logs", "Recording"]:
                 p = os.path.join(base, sub)
                 if os.path.isdir(p):
-                    sz = _dir_total(p)
+                    sz = dir_total(p)
                     if sz > 0:
                         results.append(CacheItem(
                             path=p, size=sz, provider="app_cache",
@@ -138,7 +125,7 @@ def _scan_obsidian(root: str) -> list[CacheItem]:
         for sub in ["Cache", "GPUCache", "Local Storage"]:
             p = os.path.join(ob, sub)
             if os.path.isdir(p):
-                sz = _dir_total(p)
+                sz = dir_total(p)
                 if sz > 0:
                     results.append(CacheItem(
                         path=p, size=sz, provider="app_cache",
@@ -160,7 +147,7 @@ def _scan_vsstudio(root: str) -> list[CacheItem]:
     ]
     for p in vs_paths:
         if os.path.isdir(p):
-            sz = _dir_total(p)
+            sz = dir_total(p)
             if sz > 0:
                 results.append(CacheItem(
                     path=p, size=sz, provider="app_cache",

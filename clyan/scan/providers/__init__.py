@@ -1,8 +1,10 @@
 import os
 import time
 from dataclasses import dataclass, field
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable, Optional
 from ...core.config import DangerLevel as SafetyLevel
+from ...utils.size import format_size
 
 
 @dataclass
@@ -18,23 +20,13 @@ class CacheItem:
         return {
             "path": self.path,
             "size": self.size,
-            "size_human": self._fmt(self.size),
+            "size_human": format_size(self.size),
             "provider": self.provider,
             "label": self.label,
             "safety": self.safety.value,
             "safety_label": self.safety.label(),
             **self.extra,
         }
-
-    @staticmethod
-    def _fmt(size: int) -> str:
-        suffixes = ["B", "KB", "MB", "GB", "TB"]
-        idx = 0
-        v = float(size)
-        while v >= 1024 and idx < len(suffixes) - 1:
-            v /= 1024
-            idx += 1
-        return f"{v:.2f} {suffixes[idx]}"
 
 
 ProviderFunc = Callable[[str], list[CacheItem]]
@@ -48,13 +40,17 @@ def register(name: str, fn: ProviderFunc):
 
 def detect_all(root: str) -> dict[str, list[CacheItem]]:
     results = {}
-    for name, fn in _registry.items():
-        try:
-            items = fn(root)
-            if items:
-                results[name] = items
-        except Exception as e:
-            results[name] = []
+    # Run independent provider scans in parallel (I/O-bound)
+    with ThreadPoolExecutor(max_workers=min(8, len(_registry) or 1)) as pool:
+        futures = {pool.submit(fn, root): name for name, fn in _registry.items()}
+        for f in as_completed(futures):
+            name = futures[f]
+            try:
+                items = f.result()
+                if items:
+                    results[name] = items
+            except Exception:
+                results[name] = []
     return results
 
 

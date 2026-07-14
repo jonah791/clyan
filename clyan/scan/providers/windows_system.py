@@ -1,23 +1,10 @@
 import os
 import glob
 from . import CacheItem, SafetyLevel, register
+from ...utils.dirtree import dir_total
 
 
-def _dir_total(path: str) -> int:
-    total = 0
-    try:
-        with os.scandir(path) as it:
-            for e in it:
-                try:
-                    if e.is_file(follow_symlinks=False):
-                        total += e.stat().st_size
-                    elif e.is_dir(follow_symlinks=False):
-                        total += _dir_total(e.path)
-                except Exception:
-                    pass
-    except Exception:
-        pass
-    return total
+
 
 
 def _is_admin() -> bool:
@@ -34,7 +21,7 @@ def _scan_windows_update(root: str) -> list[CacheItem]:
 
     sd = os.path.join(system32, "SoftwareDistribution", "Download")
     if os.path.isdir(sd):
-        sz = _dir_total(sd)
+        sz = dir_total(sd)
         if sz > 0:
             results.append(CacheItem(
                 path=sd, size=sz, provider="windows_system",
@@ -45,7 +32,7 @@ def _scan_windows_update(root: str) -> list[CacheItem]:
 
     catroot2 = os.path.join(system32, "System32", "catroot2")
     if os.path.isdir(catroot2):
-        sz = _dir_total(catroot2)
+        sz = dir_total(catroot2)
         if sz > 0:
             results.append(CacheItem(
                 path=catroot2, size=sz, provider="windows_system",
@@ -62,7 +49,7 @@ def _scan_prefetch(root: str) -> list[CacheItem]:
     system32 = os.environ.get("WINDIR", "C:\\Windows")
     pf = os.path.join(system32, "Prefetch")
     if os.path.isdir(pf):
-        sz = _dir_total(pf)
+        sz = dir_total(pf)
         if sz >= 1024 * 1024:
             results.append(CacheItem(
                 path=pf, size=sz, provider="windows_system",
@@ -77,7 +64,7 @@ def _scan_delivery_opt(root: str) -> list[CacheItem]:
     results = []
     do = os.path.join(os.environ.get("WINDIR", "C:\\Windows"), "DeliveryOptimization", "Cache")
     if os.path.isdir(do):
-        sz = _dir_total(do)
+        sz = dir_total(do)
         if sz > 0:
             results.append(CacheItem(
                 path=do, size=sz, provider="windows_system",
@@ -93,7 +80,7 @@ def _scan_font_cache(root: str) -> list[CacheItem]:
     appdata = os.environ.get("LOCALAPPDATA", "")
     fc = os.path.join(appdata, "Microsoft", "Windows", "FontCache")
     if os.path.isdir(fc):
-        sz = _dir_total(fc)
+        sz = dir_total(fc)
         if sz > 0:
             results.append(CacheItem(
                 path=fc, size=sz, provider="windows_system",
@@ -109,7 +96,7 @@ def _scan_recent(root: str) -> list[CacheItem]:
     appdata = os.environ.get("APPDATA", "")
     recent = os.path.join(appdata, "Microsoft", "Windows", "Recent")
     if os.path.isdir(recent):
-        sz = _dir_total(recent)
+        sz = dir_total(recent)
         if sz > 0:
             results.append(CacheItem(
                 path=recent, size=sz, provider="windows_system",
@@ -149,7 +136,7 @@ def _scan_dotnet(root: str) -> list[CacheItem]:
     ngen = os.path.join(system32, "assembly", "NativeImages_v*")
     for d in glob.glob(ngen):
         if os.path.isdir(d):
-            sz = _dir_total(d)
+            sz = dir_total(d)
             if sz > 0:
                 results.append(CacheItem(
                     path=d, size=sz, provider="windows_system",

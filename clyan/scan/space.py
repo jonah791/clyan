@@ -1,59 +1,78 @@
 import os
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from ..utils.scanner_base import ScanResult, BaseScanner
+from ..utils.dirtree import dir_total
 
 
-_SKIP_DIRS = {"$Recycle.Bin", "System Volume Information", "Recovery",
-              "Windows.old", "Config.Msi", "$SysReset", "MSOCache"}
+# Directories that SpaceScanner should NOT walk into (uses dir_total for quick size).
+_SKIP_DIRS = {
+    "$Recycle.Bin", "System Volume Information", "Recovery",
+    "Windows.old", "Config.Msi", "$SysReset", "MSOCache",
+    "Windows", "Program Files", "Program Files (x86)", "ProgramData",
+    "PerfLogs", "Intel",
+}
 
 
-def _scan_one(path: str, max_depth: int, current_depth: int) -> tuple:
-    results = []
+def _scan_one(path: str, max_depth: int, current_depth: int) -> tuple[list, int]:
+    results: list[dict] = []
     total = 0
     try:
         with os.scandir(path) as it:
-            for e in it:
-                try:
-                    name = e.name
-                    if e.is_dir(follow_symlinks=False):
-                        if name in _SKIP_DIRS and current_depth <= 1:
-                            continue
-                        sz = _get_dir_size(e.path) if current_depth >= max_depth else 0
-                        total += sz
-                        entry = {"path": e.path, "size": sz, "is_dir": True}
-                        if current_depth < max_depth:
-                            sub, sub_sz = _scan_one(e.path, max_depth, current_depth + 1)
-                            entry["children"] = sub
-                            entry["size"] = sub_sz
-                            total += sub_sz
-                        results.append(entry)
-                    else:
-                        s = e.stat().st_size
-                        total += s
-                        results.append({"path": e.path, "size": s, "is_dir": False})
-                except Exception:
-                    pass
+            entries = list(it)
     except Exception:
-        pass
+        return results, total
+
+    dirs_to_size: list[tuple[str, str]] = []      # (name, fullpath) → dir_total in parallel
+    dirs_to_recurse: list[tuple[str, str]] = []    # (name, fullpath) → recurse into
+    file_entries: list[tuple[str, int]] = []       # (name, size)
+
+    for e in entries:
+        try:
+            if e.is_dir(follow_symlinks=False):
+                name = e.name
+                if current_depth <= 1 and name in _SKIP_DIRS:
+                    dirs_to_size.append((name, e.path))
+                elif current_depth >= max_depth:
+                    dirs_to_size.append((name, e.path))
+                else:
+                    dirs_to_recurse.append((name, e.path))
+            else:
+                s = e.stat().st_size
+                total += s
+                file_entries.append((e.name, s))
+        except Exception:
+            pass
+
+    # Parallel dir_total for leaf directories
+    if dirs_to_size:
+        n = min(8, len(dirs_to_size))
+        with ThreadPoolExecutor(max_workers=n) as pool:
+            futures = {pool.submit(dir_total, fp): (name, fp) for name, fp in dirs_to_size}
+            for f in as_completed(futures):
+                name, fp = futures[f]
+                try:
+                    sz = f.result()
+                except Exception:
+                    sz = 0
+                total += sz
+                results.append({"path": fp, "size": sz, "is_dir": True})
+
+    # Recurse deeper
+    for name, fp in dirs_to_recurse:
+        try:
+            sub, sub_sz = _scan_one(fp, max_depth, current_depth + 1)
+            total += sub_sz
+            results.append({"path": fp, "size": sub_sz, "is_dir": True, "children": sub})
+        except Exception:
+            pass
+
+    for name, sz in file_entries:
+        results.append({
+            "path": os.path.join(path, name), "size": sz, "is_dir": False,
+        })
+
     return results, total
-
-
-def _get_dir_size(path: str) -> int:
-    total = 0
-    try:
-        with os.scandir(path) as it:
-            for e in it:
-                try:
-                    if e.is_file(follow_symlinks=False):
-                        total += e.stat().st_size
-                    elif e.is_dir(follow_symlinks=False):
-                        total += _get_dir_size(e.path)
-                except Exception:
-                    pass
-    except Exception:
-        pass
-    return total
 
 
 class SpaceScanner(BaseScanner):
@@ -83,14 +102,10 @@ class SpaceScanner(BaseScanner):
             result.scan_time_ms = (time.time() - start) * 1000
             return result
 
-        import multiprocessing
-        ncpu = max(1, multiprocessing.cpu_count() - 1)
-        if ncpu > 8:
-            ncpu = 8
-        n_workers = min(ncpu, len(entries))
+        n_workers = min(8, len(entries))
 
         all_parts = []
-        with ProcessPoolExecutor(max_workers=n_workers) as pool:
+        with ThreadPoolExecutor(max_workers=n_workers) as pool:
             futures = {pool.submit(_scan_one, p, self.max_depth, 1): p for p in entries}
             for f in as_completed(futures):
                 try:

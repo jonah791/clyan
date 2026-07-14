@@ -2,25 +2,9 @@ import os
 import time
 import ctypes
 from ..utils.scanner_base import ScanResult, BaseScanner
+from ..utils.dirtree import dir_total
 from ..core.config import DangerLevel
 from .providers import CacheItem
-
-
-def _dir_total(path: str) -> int:
-    total = 0
-    try:
-        with os.scandir(path) as it:
-            for e in it:
-                try:
-                    if e.is_file(follow_symlinks=False):
-                        total += e.stat().st_size
-                    elif e.is_dir(follow_symlinks=False):
-                        total += _dir_total(e.path)
-                except Exception:
-                    pass
-    except Exception:
-        pass
-    return total
 
 
 def _get_recycle_bin_size() -> int:
@@ -57,7 +41,7 @@ def _get_windows_temp() -> list[CacheItem]:
             if norm not in seen:
                 seen.add(norm)
                 try:
-                    sz = _dir_total(norm)
+                    sz = dir_total(norm)
                     if sz > 0:
                         results.append(CacheItem(
                             path=norm, size=sz, provider="system",

@@ -10,14 +10,24 @@
 - **三级安全体系**：Safe（安全可删）/ Caution（谨慎，可能需重建）/ Unsafe（不可删，含配置/凭据），配合保护路径系统和豁免规则
 - **回收站 + 历史回溯**：默认走回收站，SQLite 记录每次操作，支持按 ID 撤销
 - **MCP 服务器**：AI agent 可通过 Model Context Protocol 直接调用所有工具（无需 CLI subprocess）
-- **并行高速模式**：ThreadPoolExecutor 并发删除 + ProcessPoolExecutor 并发扫描
-- **安全边界**：`%APPDATA%\npm` 等全局包管理器目录受保护，不被误清理
+- **多级并行加速**：Provider 级 + Scanner 级双级并行，配合 LRU 目录尺寸缓存
+- **智能路径跳过**：自动跳过 `C:\Windows`、`C:\Program Files` 等系统目录（快速获取总大小但不枚举）
+- **全局包管理器保护**：`%APPDATA%\npm` 等目录受保护，不被误清理
+
+## 性能
+
+| 扫描范围 | 规模 | v0.1.0 | **v0.2.0** | 提速 |
+|---------|------|--------|-----------|------|
+| 用户目录 `C:\Users\xxx` | ~40 GB | ~23s | **~2.4s** | **~90%** |
+| 全盘 `C:\` | ~335 GB | ~未测量 | **~39s** | — |
+
+优化核心：Provider 并行化、大小缓存、WinSxS 免遍历、单次文件系统遍历、线程安全 LRU 缓存。
 
 ## 快速开始
 
 ```bash
 pip install -e .
-# 全盘快速体检
+# 全盘快速体检（2-4 秒完成用户目录，40 秒完成全盘）
 clyan scan quick C:\
 # 只看大件开发垃圾
 clyan scan dev-garbage C:\ --min-size-mb 100
@@ -36,7 +46,8 @@ clyan clean --items items.json --fast
 | `scan browsers` | 浏览器缓存 |
 | `scan system` | Windows 临时文件 + 回收站 |
 | `scan duplicates <path>` | 重复文件检测 |
-| `scan quick <path>` | 一键全量扫描 |
+| `scan packages` | 安装的环境包管理器 |
+| `scan quick <path>` | 一键全量扫描（并行执行全部分类） |
 | `clean --items <file>` | 预览或执行清理 |
 | `history` | 查看清理历史 |
 | `undo <id>` | 撤销某次清理 |
@@ -51,9 +62,9 @@ clyan mcp
 ```
 
 暴露的 MCP 工具：
-- `scan_quick` / `scan_dev_garbage` / `scan_browsers` / `scan_system` / `scan_duplicates`
+- `scan_quick` / `scan_dev_garbage` / `scan_browsers` / `scan_system` / `scan_duplicates` / `scan_packages`
 - `clean_preview` / `clean_execute`
-- `history`
+- `history` / `undo`
 
 ## 安全体系
 
@@ -68,6 +79,14 @@ clyan mcp
 保护路径（31条）：`C:\Windows`、`C:\Program Files`、`%APPDATA%\npm`、`Desktop`、`Documents`、`.ssh`、`.git`……
 
 豁免规则（34条）：`node_modules/`（排除全局 npm）、`Temp/`、`.cache/`、`assembly/`、`dist/`（排除 npm 内）……
+
+## 安装
+
+```bash
+pip install -e .
+# 或使用 MCP 模式（启动 AI agent 工具服务器）
+clyan mcp
+```
 
 ## 参考项目
 

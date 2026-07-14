@@ -1,6 +1,9 @@
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from ..utils.scanner_base import ScanResult, BaseScanner
+from ..utils.dirtree import reset_dir_total_cache
+from ..utils.size import format_size
 from ..core.config import DangerLevel, is_protected
 from . import providers
 from .fast_scanner import fast_scan, register_pattern
@@ -63,17 +66,21 @@ class DevGarbageScanner(BaseScanner):
     def scan(self) -> ScanResult:
         result = ScanResult()
         start = time.time()
+        reset_dir_total_cache()
 
         if not os.path.exists(self.root):
             result.errors.append(f"path not found: {self.root}")
             result.scan_time_ms = (time.time() - start) * 1000
             return result
 
-        # Phase 1: Fast unified walk (one os.walk for all directory patterns)
-        matched = fast_scan(self.root, max_depth=6)
-
-        # Phase 2: Provider-based system cache detection
-        provider_items = providers.detect_all(self.root)
+        # Run pattern walk and provider scans in parallel (both I/O-bound, independent)
+        matched: dict = {}
+        provider_items: dict = {}
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            f1 = pool.submit(fast_scan, self.root, 6)
+            f2 = pool.submit(providers.detect_all, self.root)
+            matched = f1.result()
+            provider_items = f2.result()
 
         all_items: list[CacheItem] = []
 
@@ -120,7 +127,7 @@ class DevGarbageScanner(BaseScanner):
             provider_summaries.append({
                 "provider": pname,
                 "total_size": total,
-                "total_size_human": _fmt(total),
+                "total_size_human": format_size(total),
                 "item_count": len(items),
             })
 
@@ -135,11 +142,4 @@ class DevGarbageScanner(BaseScanner):
         return result
 
 
-def _fmt(size: int) -> str:
-    suffixes = ["B", "KB", "MB", "GB", "TB"]
-    idx = 0
-    v = float(size)
-    while v >= 1024 and idx < len(suffixes) - 1:
-        v /= 1024
-        idx += 1
-    return f"{v:.2f} {suffixes[idx]}"
+

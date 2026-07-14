@@ -5,6 +5,7 @@ import threading
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from ..utils.scanner_base import ScanResult, BaseScanner
+from ..utils.size import format_size
 
 
 _BLOCK_SIZE = 65536
@@ -169,7 +170,7 @@ class DuplicateScanner(BaseScanner):
                 "duplicates": group["duplicates"],
                 "duplicate_count": group["duplicate_count"],
                 "savings": group["savings"],
-                "savings_human": _fmt(group["savings"]),
+                "savings_human": format_size(group["savings"]),
             })
             result.total_size += group["savings"]
 
@@ -184,11 +185,4 @@ class DuplicateScanner(BaseScanner):
         return result
 
 
-def _fmt(size: int) -> str:
-    suffixes = ["B", "KB", "MB", "GB", "TB"]
-    idx = 0
-    v = float(size)
-    while v >= 1024 and idx < len(suffixes) - 1:
-        v /= 1024
-        idx += 1
-    return f"{v:.2f} {suffixes[idx]}"
+

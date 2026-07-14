@@ -14,13 +14,15 @@ from .clean.execute import delete_items
 from .core.history import get_history, get_operation, mark_undone
 from .core.report import summarize_scan_results
 from .utils.size import parse_size
+from .utils.size import format_size
+from .utils.dirtree import reset_dir_total_cache
 
 
-def _out(data: dict):
+def _out(data: dict) -> None:
     sys.stdout.write(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
 
 
-def cmd_scan_space(args):
+def cmd_scan_space(args: argparse.Namespace) -> None:
     s = SpaceScanner(
         path=args.path,
         max_depth=args.depth,
@@ -31,7 +33,7 @@ def cmd_scan_space(args):
     _out(result.to_dict())
 
 
-def cmd_scan_dev(args):
+def cmd_scan_dev(args: argparse.Namespace) -> None:
     s = DevGarbageScanner(root=args.path)
     result = s.scan()
     d = result.to_dict()
@@ -40,42 +42,35 @@ def cmd_scan_dev(args):
         d["items"] = [i for i in d["items"] if i["size"] >= min_bytes]
         d["item_count"] = len(d["items"])
         d["total_size"] = sum(i["size"] for i in d["items"])
-        d["total_size_human"] = _fmt(d["total_size"])
+        d["total_size_human"] = format_size(d["total_size"])
     if args.json_mode:
         sys.stdout.write(json.dumps(d["items"], ensure_ascii=False) + "\n")
     else:
         _out(d)
 
 
-def _fmt(size: int) -> str:
-    suffixes = ["B", "KB", "MB", "GB", "TB"]
-    idx = 0
-    v = float(size)
-    while v >= 1024 and idx < len(suffixes) - 1:
-        v /= 1024
-        idx += 1
-    return f"{v:.2f} {suffixes[idx]}"
 
 
-def cmd_scan_browsers(args):
+
+def cmd_scan_browsers(args: argparse.Namespace) -> None:
     s = BrowserCacheScanner()
     result = s.scan()
     _out(result.to_dict())
 
 
-def cmd_scan_system(args):
+def cmd_scan_system(args: argparse.Namespace) -> None:
     s = SystemScanner()
     result = s.scan()
     _out(result.to_dict())
 
 
-def cmd_scan_duplicates(args):
+def cmd_scan_duplicates(args: argparse.Namespace) -> None:
     s = DuplicateScanner(path=args.path)
     result = s.scan()
     _out(result.to_dict())
 
 
-def cmd_mcp(args):
+def cmd_mcp(args: argparse.Namespace) -> None:
     try:
         from .mcp_server import main as mcp_main
         import anyio
@@ -84,27 +79,21 @@ def cmd_mcp(args):
         _out({"error": f"MCP dependencies not available: {e}"})
 
 
-def cmd_scan_packages(args):
+def cmd_scan_packages(args: argparse.Namespace) -> None:
     s = PackagesScanner()
     result = s.scan()
     d = result.to_dict()
     _out(d)
 
 
-def cmd_scan_quick(args):
+def cmd_scan_quick(args: argparse.Namespace) -> None:
+    reset_dir_total_cache()
     results = {}
 
-    s1 = SpaceScanner(path=args.path, max_depth=2, top_n=30)
-    results["space"] = s1.scan().to_dict()
-
-    s2 = DevGarbageScanner(root=args.path)
-    results["dev_garbage"] = s2.scan().to_dict()
-
-    s3 = BrowserCacheScanner()
-    results["browsers"] = s3.scan().to_dict()
-
-    s4 = SystemScanner()
-    results["system"] = s4.scan().to_dict()
+    results["space"] = SpaceScanner(path=args.path, max_depth=2, top_n=30).scan().to_dict()
+    results["dev_garbage"] = DevGarbageScanner(root=args.path).scan().to_dict()
+    results["browsers"] = BrowserCacheScanner().scan().to_dict()
+    results["system"] = SystemScanner().scan().to_dict()
 
     summary = summarize_scan_results(results)
 
@@ -129,7 +118,7 @@ def _filter_by_safety(items: list[dict], level: str) -> list[dict]:
     return [i for i in items if levels.get(i.get("safety", "unsafe"), 2) >= threshold]
 
 
-def cmd_clean(args):
+def cmd_clean(args: argparse.Namespace) -> None:
     if args.items:
         if os.path.isfile(args.items):
             with open(args.items, "r", encoding="utf-8-sig") as f:
@@ -161,7 +150,7 @@ def cmd_clean(args):
     _out(res)
 
 
-def cmd_history(args):
+def cmd_history(args: argparse.Namespace) -> None:
     if args.id:
         op = get_operation(args.id)
         if op:
@@ -174,7 +163,7 @@ def cmd_history(args):
         _out({"operations": rows})
 
 
-def cmd_undo(args):
+def cmd_undo(args: argparse.Namespace) -> None:
     ok = mark_undone(args.id)
     _out({"operation_id": args.id, "undone": ok})
 
@@ -234,7 +223,7 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def main():
+def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 

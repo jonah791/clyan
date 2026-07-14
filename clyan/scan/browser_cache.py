@@ -3,25 +3,9 @@ import time
 import glob
 from ..utils.scanner_base import ScanResult, BaseScanner
 from ..utils.paths import browser_cache_paths
+from ..utils.dirtree import dir_total
 from ..core.config import DangerLevel
 from .providers import CacheItem
-
-
-def _dir_total(path: str) -> int:
-    total = 0
-    try:
-        with os.scandir(path) as it:
-            for e in it:
-                try:
-                    if e.is_file(follow_symlinks=False):
-                        total += e.stat().st_size
-                    elif e.is_dir(follow_symlinks=False):
-                        total += _dir_total(e.path)
-                except Exception:
-                    pass
-    except Exception:
-        pass
-    return total
 
 
 class BrowserCacheScanner(BaseScanner):
@@ -43,7 +27,7 @@ class BrowserCacheScanner(BaseScanner):
             p = self.paths.get(key, "")
             if p and os.path.isdir(p):
                 try:
-                    sz = _dir_total(p)
+                    sz = dir_total(p)
                     if sz > 0:
                         item = CacheItem(
                             path=p, size=sz, provider="browser",
@@ -60,7 +44,7 @@ class BrowserCacheScanner(BaseScanner):
             for profile in glob.glob(os.path.join(firefox_dir, "*.default*", "cache2")):
                 if os.path.isdir(profile):
                     try:
-                        sz = _dir_total(profile)
+                        sz = dir_total(profile)
                         if sz > 0:
                             item = CacheItem(
                                 path=profile, size=sz, provider="browser",

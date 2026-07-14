@@ -2,8 +2,9 @@ import os
 import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from ..core.config import is_protected, SAFE_DELETE_DEFAULTS
+from ..core.config import is_protected
 from ..core.history import record_clean
+from ..utils.size import format_size
 
 _FAST_THRESHOLD = 100 * 1024 * 1024
 
@@ -101,7 +102,7 @@ def delete_items(items: list[dict], use_trash: bool = True, fast: bool = False) 
         "success_count": success_count,
         "fail_count": fail_count,
         "total_freed": total_freed,
-        "total_freed_human": _fmt(total_freed),
+        "total_freed_human": format_size(total_freed),
         "use_trash": use_trash,
         "fast_mode": fast,
         "elapsed_seconds": round(elapsed, 1),
@@ -111,11 +112,4 @@ def delete_items(items: list[dict], use_trash: bool = True, fast: bool = False) 
     }
 
 
-def _fmt(size: int) -> str:
-    suffixes = ["B", "KB", "MB", "GB", "TB"]
-    idx = 0
-    v = float(size)
-    while v >= 1024 and idx < len(suffixes) - 1:
-        v /= 1024
-        idx += 1
-    return f"{v:.2f} {suffixes[idx]}"
+

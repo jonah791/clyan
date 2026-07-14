@@ -1,23 +1,10 @@
 import os
 import glob
 from . import CacheItem, SafetyLevel, register
+from ...utils.dirtree import dir_total
 
 
-def _dir_total(path: str) -> int:
-    total = 0
-    try:
-        with os.scandir(path) as it:
-            for e in it:
-                try:
-                    if e.is_file(follow_symlinks=False):
-                        total += e.stat().st_size
-                    elif e.is_dir(follow_symlinks=False):
-                        total += _dir_total(e.path)
-                except Exception:
-                    pass
-    except Exception:
-        pass
-    return total
+
 
 
 def _scan_nuget(root: str) -> list[CacheItem]:
@@ -31,7 +18,7 @@ def _scan_nuget(root: str) -> list[CacheItem]:
         (os.path.join(local_appdata, "NuGet", "plugins-cache"), "NuGet plugins cache"),
     ]:
         if os.path.isdir(p):
-            sz = _dir_total(p)
+            sz = dir_total(p)
             if sz > 0:
                 results.append(CacheItem(
                     path=p, size=sz, provider="nuget",
@@ -49,7 +36,7 @@ def _scan_go(root: str) -> list[CacheItem]:
         (os.path.join(userprofile, "go", "pkg", "mod", "cache"), "Go build cache"),
     ]:
         if os.path.isdir(p):
-            sz = _dir_total(p)
+            sz = dir_total(p)
             if sz > 0:
                 results.append(CacheItem(
                     path=p, size=sz, provider="go",
@@ -68,7 +55,7 @@ def _scan_android(root: str) -> list[CacheItem]:
         for sub in ["caches", "index", "tmp", "log"]:
             sp = os.path.join(p, "system", sub) if sub != "caches" else os.path.join(p, "caches")
             if os.path.isdir(sp):
-                sz = _dir_total(sp)
+                sz = dir_total(sp)
                 if sz > 0:
                     results.append(CacheItem(
                         path=sp, size=sz, provider="android",
@@ -80,7 +67,7 @@ def _scan_android(root: str) -> list[CacheItem]:
     if sdk_path:
         temp_dir = os.path.join(sdk_path, ".temp")
         if os.path.isdir(temp_dir):
-            sz = _dir_total(temp_dir)
+            sz = dir_total(temp_dir)
             if sz > 0:
                 results.append(CacheItem(
                     path=temp_dir, size=sz, provider="android",
@@ -95,7 +82,7 @@ def _scan_flutter_cache(root: str) -> list[CacheItem]:
     userprofile = os.environ.get("USERPROFILE", "")
     flutter_cache = os.path.join(userprofile, ".pub-cache")
     if os.path.isdir(flutter_cache):
-        sz = _dir_total(flutter_cache)
+        sz = dir_total(flutter_cache)
         if sz > 0:
             results.append(CacheItem(
                 path=flutter_cache, size=sz, provider="flutter",
@@ -109,7 +96,7 @@ def _scan_docker(root: str) -> list[CacheItem]:
     userprofile = os.environ.get("USERPROFILE", "")
     docker_dir = os.path.join(userprofile, "AppData", "Local", "Docker")
     if os.path.isdir(docker_dir):
-        sz = _dir_total(docker_dir)
+        sz = dir_total(docker_dir)
         if sz > 0:
             return [CacheItem(
                 path=docker_dir, size=sz, provider="docker",

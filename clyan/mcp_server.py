@@ -10,9 +10,10 @@ from .scan.dev_garbage import DevGarbageScanner
 from .scan.browser_cache import BrowserCacheScanner
 from .scan.system import SystemScanner
 from .scan.duplicates import DuplicateScanner
+from .scan.packages import PackagesScanner
 from .clean.preview import generate_preview
 from .clean.execute import delete_items
-from .core.history import get_history, get_operation
+from .core.history import get_history, get_operation, mark_undone
 
 
 server = Server("clyan", version="0.1.0")
@@ -115,14 +116,22 @@ async def handle_list_tools() -> list[Tool]:
             },
         ),
         Tool(
-            name="history",
-            description="View cleanup history. Pass op_id to inspect a specific operation.",
+            name="scan_packages",
+            description="Scan installed package environments (conda, scoop, cargo, go, npm) for cleanup candidates.",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+            },
+        ),
+        Tool(
+            name="undo",
+            description="Undo a cleanup operation by its operation ID (restores from recycle bin where possible).",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "op_id": {"type": "number", "description": "Operation ID to inspect (optional)"},
-                    "limit": {"type": "number", "description": "Max entries (default 20)"},
+                    "op_id": {"type": "number", "description": "Operation ID to undo"},
                 },
+                "required": ["op_id"],
             },
         ),
     ]
@@ -194,6 +203,16 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent]:
             else:
                 data = {"operations": get_history(limit=limit)}
             return [TextContent(type="text", text=json.dumps(data, ensure_ascii=False, indent=2))]
+
+        elif name == "scan_packages":
+            s = PackagesScanner()
+            data = s.scan().to_dict()
+            return [TextContent(type="text", text=json.dumps(data, ensure_ascii=False, indent=2))]
+
+        elif name == "undo":
+            op_id = arguments["op_id"]
+            ok = mark_undone(op_id)
+            return [TextContent(type="text", text=json.dumps({"operation_id": op_id, "undone": ok}))]
 
         else:
             return [TextContent(type="text", text=json.dumps({"error": f"unknown tool: {name}"}))]
