@@ -15,6 +15,11 @@ _SKIP_DIRS = {
 
 
 def _scan_one(path: str, max_depth: int, current_depth: int) -> tuple[list, int]:
+    # Early skip: if this exact path is a known system dir, one dir_total call
+    if current_depth == 1 and os.path.basename(path) in _SKIP_DIRS:
+        sz = dir_total(path)
+        return [{"path": path, "size": sz, "is_dir": True}], sz
+
     results: list[dict] = []
     total = 0
     try:
@@ -31,9 +36,7 @@ def _scan_one(path: str, max_depth: int, current_depth: int) -> tuple[list, int]
         try:
             if e.is_dir(follow_symlinks=False):
                 name = e.name
-                if current_depth <= 1 and name in _SKIP_DIRS:
-                    dirs_to_size.append((name, e.path))
-                elif current_depth >= max_depth:
+                if current_depth >= max_depth:
                     dirs_to_size.append((name, e.path))
                 else:
                     dirs_to_recurse.append((name, e.path))
