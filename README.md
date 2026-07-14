@@ -11,6 +11,8 @@
 - **回收站 + 历史回溯**：默认走回收站，SQLite 记录每次操作，支持按 ID 撤销
 - **MCP 服务器**：AI agent 可通过 Model Context Protocol 直接调用所有工具（无需 CLI subprocess）
 - **多级并行加速**：Provider 级 + Scanner 级双级并行，配合 LRU 目录尺寸缓存
+- **并行清理加速**：Parallel `shutil.rmtree` 批量回收站 + 原生 Windows 删除、`is_protected` LRU 缓存、大小优先排序
+- **Windows 原生删除**：≥500MB 大目录自动用 `rd /s /q`（深树提速 1.3x）；散落小目录用并行 `shutil.rmtree`（提速 3.5x）
 - **智能路径跳过**：自动跳过 `C:\Windows`、`C:\Program Files` 等系统目录（快速获取总大小但不枚举）
 - **全局包管理器保护**：`%APPDATA%\npm` 等目录受保护，不被误清理
 
