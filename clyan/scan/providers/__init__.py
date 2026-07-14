@@ -14,10 +14,12 @@ class CacheItem:
     provider: str
     label: str
     safety: SafetyLevel = SafetyLevel.SAFE
+    confidence: float = 1.0          # 0.0–1.0, computed by confidence engine
+    reason: str = ""                  # human-readable explanation for confidence
     extra: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
-        return {
+        base = {
             "path": self.path,
             "size": self.size,
             "size_human": format_size(self.size),
@@ -25,8 +27,11 @@ class CacheItem:
             "label": self.label,
             "safety": self.safety.value,
             "safety_label": self.safety.label(),
-            **self.extra,
+            "confidence": round(self.confidence, 2),
         }
+        if self.reason:
+            base["reason"] = self.reason
+        return {**base, **self.extra}
 
 
 ProviderFunc = Callable[[str], list[CacheItem]]
@@ -38,9 +43,24 @@ def register(name: str, fn: ProviderFunc):
     _registry[name] = fn
 
 
+def _attach_signals(items: list[CacheItem]) -> None:
+    """Attach age_days and tool_installed signals to CacheItem objects.
+
+    Only computes if the provider hasn't already supplied them.
+    """
+    from ...utils.staleness import get_age_days, cache_type_installed
+
+    for item in items:
+        if "age_days" not in item.extra:
+            age = get_age_days(item.path)
+            if age is not None:
+                item.extra["age_days"] = age
+        if "tool_installed" not in item.extra:
+            item.extra["tool_installed"] = cache_type_installed(item.provider)
+
+
 def detect_all(root: str) -> dict[str, list[CacheItem]]:
     results = {}
-    # Run independent provider scans in parallel (I/O-bound)
     with ThreadPoolExecutor(max_workers=min(8, len(_registry) or 1)) as pool:
         futures = {pool.submit(fn, root): name for name, fn in _registry.items()}
         for f in as_completed(futures):
@@ -49,6 +69,7 @@ def detect_all(root: str) -> dict[str, list[CacheItem]]:
                 items = f.result()
                 if items:
                     results[name] = items
+                    _attach_signals(items)
             except Exception:
                 results[name] = []
     return results

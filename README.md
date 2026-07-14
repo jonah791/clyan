@@ -14,6 +14,9 @@
 - **并行清理加速**：Parallel `shutil.rmtree` 批量回收站 + 原生 Windows 删除、`is_protected` LRU 缓存、大小优先排序
 - **Windows 原生删除**：≥500MB 大目录自动用 `rd /s /q`（深树提速 1.3x）；散落小目录用并行 `shutil.rmtree`（提速 3.5x）
 - **智能路径跳过**：自动跳过 `C:\Windows`、`C:\Program Files` 等系统目录（快速获取总大小但不枚举）
+- **垃圾置信度评分**：每个可清理项自动计算 0–100% 置信度（安全级别 + 修改时间 + 工具是否卸载 + 目录名），附中文原因说明
+- **孤儿缓存检测**：自动检测包管理器（npm/pip/cargo/go/gradle/dotnet/…）是否已卸载，被弃用的缓存自动提高置信度
+- **智能过滤**：`--auto-safe`（只删置信度≥90%的项目）、`--min-confidence <0-100>`、`--explain`（显示置信度原因）
 - **全局包管理器保护**：`%APPDATA%\npm` 等目录受保护，不被误清理
 
 ## 性能

@@ -48,6 +48,15 @@ def cmd_scan_dev(args: argparse.Namespace) -> None:
     else:
         _out(d)
 
+    if args.explain:
+        # Show confidence breakdown when --explain is used with scan
+        items_with_conf = d.get("items", [])
+        from .utils.staleness import get_age_days, cache_type_installed
+        from .utils.confidence import compute_and_attach
+        for item in items_with_conf:
+            compute_and_attach(item)
+        confidence_summary = _summarize_confidence(items_with_conf)
+        _out(confidence_summary)
 
 
 
@@ -118,6 +127,30 @@ def _filter_by_safety(items: list[dict], level: str) -> list[dict]:
     return [i for i in items if levels.get(i.get("safety", "unsafe"), 2) >= threshold]
 
 
+def _ensure_confidence(items: list[dict]) -> None:
+    """Enrich items with signals + confidence if missing."""
+    from .utils.scanner_base import _enrich
+    from .utils.confidence import compute_and_attach
+    for item in items:
+        _enrich(item)
+        compute_and_attach(item)
+
+
+def _summarize_confidence(items: list[dict]) -> dict:
+    high = [i for i in items if i.get("confidence", 0) >= 0.8]
+    mid = [i for i in items if 0.5 <= i.get("confidence", 0) < 0.8]
+    low = [i for i in items if i.get("confidence", 0) < 0.5]
+    return {
+        "total_items": len(items),
+        "high_confidence": len(high),
+        "mid_confidence": len(mid),
+        "low_confidence": len(low),
+        "avg_confidence": round(
+            sum(i.get("confidence", 0) for i in items) / max(len(items), 1), 2
+        ),
+    }
+
+
 def cmd_clean(args: argparse.Namespace) -> None:
     if args.items:
         if os.path.isfile(args.items):
@@ -135,6 +168,23 @@ def cmd_clean(args: argparse.Namespace) -> None:
     if not isinstance(items, list):
         items = items.get("items", items.get("valid_items", []))
 
+    # Ensure confidence + signals on all items
+    _ensure_confidence(items)
+
+    # Apply auto-safe: confidence >= 0.90 AND safety == safe
+    if args.auto_safe:
+        items = [i for i in items if i.get("confidence", 0) >= 0.90 and i.get("safety") == "safe"]
+        if not items:
+            _out({"error": "no items pass auto-safe filter (confidence >= 0.90 & safety == safe)"})
+            return
+
+    if args.min_confidence is not None:
+        threshold = args.min_confidence / 100.0
+        items = [i for i in items if i.get("confidence", 0) >= threshold]
+        if not items:
+            _out({"error": f"no items match --min-confidence {args.min_confidence}"})
+            return
+
     if args.safety:
         items = _filter_by_safety(items, args.safety)
         if not items:
@@ -143,10 +193,26 @@ def cmd_clean(args: argparse.Namespace) -> None:
 
     if args.dry_run:
         preview = generate_preview(items)
+        if args.explain:
+            preview["confidence_summary"] = _summarize_confidence(items)
+            for item in preview.get("valid_items", []):
+                for src in items:
+                    if src.get("path") == item["path"]:
+                        item["confidence"] = src.get("confidence", 0)
+                        item["reason"] = src.get("reason", "")
+                        break
         _out(preview)
         return
 
     res = delete_items(items, use_trash=not args.permanent, fast=args.fast)
+    if args.explain:
+        res["confidence_summary"] = _summarize_confidence(items)
+        for item in res.get("results", []):
+            for src in items:
+                if src.get("path") == item.get("path"):
+                    item["confidence"] = src.get("confidence", 0)
+                    item["reason"] = src.get("reason", "")
+                    break
     _out(res)
 
 
@@ -183,7 +249,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp_dev = sp_sub.add_parser("dev-garbage", help="find developer cache garbage")
     sp_dev.add_argument("path", nargs="?", default=os.environ.get("USERPROFILE", "."))
-    sp_dev.add_argument("--min-size-mb", type=int, default=0, help="only show items >= this many MB")
+    sp_dev.add_argument("--min-size-mb", type=int, default=0,
+                        help="only show items >= this many MB")
+    sp_dev.add_argument("--explain", action="store_true",
+                        help="show confidence scores and reasons")
     sp_dev.add_argument("--json", dest="json_mode", action="store_true",
                         help="output raw items array (pipeable to clyan clean --stdin)")
 
@@ -194,22 +263,31 @@ def build_parser() -> argparse.ArgumentParser:
     sp_dup = sp_sub.add_parser("duplicates", help="find duplicate files by size+hash")
     sp_dup.add_argument("path", nargs="?", default=os.environ.get("USERPROFILE", "."))
 
-    sp_pkgs = sp_sub.add_parser("packages", help="scan installed package environments (conda, scoop, cargo, go, npm)")
+    sp_pkgs = sp_sub.add_parser("packages",
+                                help="scan installed package environments (conda, scoop, cargo, go, npm)")
     sp_pkgs.add_argument("--json", dest="json_mode", action="store_true",
                          help="output raw items array (pipeable to clyan clean --stdin)")
 
     sp_quick = sp_sub.add_parser("quick", help="run all scans")
     sp_quick.add_argument("path", nargs="?", default=os.environ.get("USERPROFILE", "."))
-    sp_quick.add_argument("--top", type=int, default=0, help="only show top N biggest items across all scans")
+    sp_quick.add_argument("--top", type=int, default=0,
+                          help="only show top N biggest items across all scans")
 
     cp = sub.add_parser("clean", help="preview or execute cleanup")
     cp.add_argument("--items", help="path to JSON file or JSON string with items")
     cp.add_argument("--stdin", action="store_true", help="read items JSON from stdin")
     cp.add_argument("--dry-run", action="store_true", help="preview only, no delete")
     cp.add_argument("--permanent", action="store_true", help="skip trash, permanent delete")
-    cp.add_argument("--fast", action="store_true", help="direct delete for large items (default: recycle bin)")
+    cp.add_argument("--fast", action="store_true",
+                    help="direct delete for large items (default: recycle bin)")
     cp.add_argument("--safety", choices=["safe", "caution", "unsafe"],
                     help="minimum safety level (default: all). safe < caution < unsafe")
+    cp.add_argument("--explain", action="store_true",
+                    help="show confidence scores and reasons in output")
+    cp.add_argument("--min-confidence", type=int, choices=range(1, 101), metavar="0-100",
+                    help="only process items with confidence >= this threshold")
+    cp.add_argument("--auto-safe", action="store_true",
+                    help="only delete items with confidence >= 0.90 AND safety=safe")
 
     hp = sub.add_parser("history", help="view cleanup history")
     hp.add_argument("--id", type=int, help="operation ID to inspect")
