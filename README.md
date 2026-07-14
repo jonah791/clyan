@@ -8,23 +8,24 @@
 - **重复文件检测**：三步检测（按大小分组 → BLAKE2b 部分哈希 → 全量哈希）
 - **Windows 深度清理**：WinSxS 组件存储、Windows.old 旧系统、DriverStore 驱动备份、Delivery Optimization 缓存、DISM 清理
 - **三级安全体系**：Safe（安全可删）/ Caution（谨慎，可能需重建）/ Unsafe（不可删，含配置/凭据），配合保护路径系统和豁免规则
+- **垃圾置信度评分**：每个可清理项自动计算 0–100% 置信度（安全级别 + 修改时间 + 工具是否卸载 + 目录名），附中文原因说明
+- **孤儿缓存检测**：自动检测包管理器（npm/pip/cargo/go/gradle/dotnet…）是否已卸载，被弃用的缓存自动提高置信度
+- **智能过滤**：`--auto-safe`（只删置信度≥90%的项目）、`--min-confidence <0-100>`、`--explain`（显示置信度原因）
 - **回收站 + 历史回溯**：默认走回收站，SQLite 记录每次操作，支持按 ID 撤销
 - **MCP 服务器**：AI agent 可通过 Model Context Protocol 直接调用所有工具（无需 CLI subprocess）
 - **多级并行加速**：Provider 级 + Scanner 级双级并行，配合 LRU 目录尺寸缓存
 - **并行清理加速**：Parallel `shutil.rmtree` 批量回收站 + 原生 Windows 删除、`is_protected` LRU 缓存、大小优先排序
 - **Windows 原生删除**：≥500MB 大目录自动用 `rd /s /q`（深树提速 1.3x）；散落小目录用并行 `shutil.rmtree`（提速 3.5x）
-- **智能路径跳过**：自动跳过 `C:\Windows`、`C:\Program Files` 等系统目录（快速获取总大小但不枚举）
-- **垃圾置信度评分**：每个可清理项自动计算 0–100% 置信度（安全级别 + 修改时间 + 工具是否卸载 + 目录名），附中文原因说明
-- **孤儿缓存检测**：自动检测包管理器（npm/pip/cargo/go/gradle/dotnet/…）是否已卸载，被弃用的缓存自动提高置信度
-- **智能过滤**：`--auto-safe`（只删置信度≥90%的项目）、`--min-confidence <0-100>`、`--explain`（显示置信度原因）
 - **全局包管理器保护**：`%APPDATA%\npm` 等目录受保护，不被误清理
 
 ## 性能
 
-| 扫描范围 | 规模 | v0.1.0 | **v0.2.0** | 提速 |
+| 扫描范围 | 规模 | v0.1.0 | **v0.4.0** | 提速 |
 |---------|------|--------|-----------|------|
 | 用户目录 `C:\Users\xxx` | ~40 GB | ~23s | **~2.4s** | **~90%** |
 | 全盘 `C:\` | ~335 GB | ~未测量 | **~39s** | — |
+| 清理 200 散落目录（2K 文件） | 并行 rmtree | ~0.23s | **~0.06s** | **3.5x** |
+| 清理 10K 深树文件 | 原生 rd /s /q | ~1.6s | **~1.3s** | **1.3x** |
 
 优化核心：Provider 并行化、大小缓存、WinSxS 免遍历、单次文件系统遍历、线程安全 LRU 缓存。
 
@@ -36,13 +37,17 @@ pip install -e .
 clyan scan quick C:\
 # 只看大件开发垃圾
 clyan scan dev-garbage C:\ --min-size-mb 100
-# 预览清理结果
-clyan clean --items items.json --dry-run
+# 预览清理结果（带置信度说明）
+clyan clean --items items.json --dry-run --explain
+# 只删"绝对垃圾"（置信度≥90% 且安全级别 SAFE）
+clyan clean --items items.json --auto-safe
 # 执行清理（大文件直接删，不走回收站）
 clyan clean --items items.json --fast
 ```
 
 ## 命令
+
+### 扫描
 
 | 命令 | 说明 |
 |------|------|
@@ -53,10 +58,72 @@ clyan clean --items items.json --fast
 | `scan duplicates <path>` | 重复文件检测 |
 | `scan packages` | 安装的环境包管理器 |
 | `scan quick <path>` | 一键全量扫描（并行执行全部分类） |
-| `clean --items <file>` | 预览或执行清理 |
+
+### 清理
+
+| 选项 | 说明 |
+|------|------|
+| `--items <file>` | JSON 文件或字符串 |
+| `--stdin` | 从 stdin 读取 JSON |
+| `--dry-run` | 预览模式（不实际删除） |
+| `--permanent` | 永久删除（不进回收站） |
+| `--fast` | 大文件直接删（默认 ≥100MB 进回收站） |
+| `--safety {safe,caution,unsafe}` | 最小安全级别过滤 |
+| `--explain` | 显示置信度分数和原因 |
+| `--min-confidence <0-100>` | 只处理置信度≥阈值的项目 |
+| `--auto-safe` | 只删置信度≥90% 且 safety=safe 的项目 |
+
+### 其他
+
+| 命令 | 说明 |
+|------|------|
 | `history` | 查看清理历史 |
 | `undo <id>` | 撤销某次清理 |
 | `mcp` | 启动 MCP 服务器 |
+
+## 置信度评分
+
+v0.4.0 引入的垃圾置信度引擎自动为每个可清理项打分，帮助你决定哪些可以放心删除。
+
+### 评分公式
+
+| 信号 | 权重 | 最高分 | 说明 |
+|------|------|--------|------|
+| 安全级别 | 40% | 40 | SAFE=40, CAUTION=20, UNSAFE=0 |
+| 文件陈旧度 | 30% | 30 | >90天=30, >30天=20, >7天=10, 近期=0 |
+| 工具已卸载 | 20% | 20 | 对应包管理器不在 PATH 中=20 |
+| 已知缓存目录名 | 10% | 10 | npm-cache / \_\_pycache\_\_ / Temp / ...=10 |
+
+### 使用场景
+
+```bash
+# 看置信度分布 + 每项原因
+clyan clean --items items.json --dry-run --explain
+
+# 只删 100% 确定垃圾
+clyan clean --items items.json --auto-safe
+
+# 自定义阈值：只删置信度≥80%
+clyan clean --items items.json --min-confidence 80 --fast
+
+# 扫描开发垃圾时看置信度
+clyan scan dev-garbage C:\Users\tr --explain
+```
+
+### 输出示例
+
+```json
+{
+  "reason": "安全级别 SAFE；>90天未修改；对应工具已卸载；已知安全缓存目录名",
+  "confidence": 1.0,
+  "age_days": 120,
+  "tool_installed": false
+}
+```
+
+- **置信度 0.8–1.0**：🟢 放心删 — 安全 + 陈旧 + 孤立
+- **置信度 0.5–0.8**：🟡 很可能可删 — 安全但工具还在或近期用过
+- **置信度 < 0.5**：🔴 谨慎 — CAUTION/UNSAFE 或刚生成
 
 ## MCP 服务器
 
@@ -92,6 +159,15 @@ pip install -e .
 # 或使用 MCP 模式（启动 AI agent 工具服务器）
 clyan mcp
 ```
+
+## 版本历程
+
+| 版本 | 亮点 |
+|------|------|
+| **v0.4.0** | 垃圾置信度评分引擎 + 孤儿缓存检测 + --explain/--min-confidence/--auto-safe |
+| **v0.3.0** | 清理性能优化：原生 rd/s/q（1.3x）、并行 rmtree（3.5x）、批量回收站、is_protected LRU 缓存 |
+| **v0.2.0** | 扫描性能大提速（~90%）：Provider 并行化、目录尺寸缓存、WinSxS 免遍历、单次文件系统遍历 |
+| **v0.1.0** | 初始版本：26+ 缓存检测器、重复文件检测、Windows 深度清理、MCP 服务器 |
 
 ## 参考项目
 
