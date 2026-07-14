@@ -1,5 +1,6 @@
 import sys
 import json
+import os
 import anyio
 import uuid
 from typing import Any
@@ -16,12 +17,13 @@ from .scan.packages import PackagesScanner
 from .scan.disk_summary import scan_disk as scan_disk_fn
 from .clean.preview import generate_preview
 from .clean.execute import delete_items
+from .utils.size import format_size
 from .core.history import get_history, get_operation, mark_undone
 from .utils.scanner_base import _enrich
 from .utils.confidence import compute_and_attach, compute as compute_confidence
 
 
-server = Server("clyan", version="0.7.0")
+server = Server("clyan", version="0.8.0")
 
 # ── In-memory store for two-phase clean proposals ──
 _proposals: dict[str, dict[str, Any]] = {}
@@ -179,6 +181,22 @@ async def handle_list_tools() -> list[Tool]:
                         "type": "boolean",
                         "description": "Send to recycle bin (default true). Use false for permanent delete.",
                     },
+                },
+            },
+        ),
+        Tool(
+            name="clean_deep",
+            description="Full cleaning cycle: scans dev-garbage + system + browsers → scores → filters → executes → verifies freed space. Returns clean result + before/after disk comparison. Best single-call tool for autonomous agents.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Root path (default: user profile)"},
+                    "strategy": {
+                        "type": "string",
+                        "enum": ["safe", "aged", "orphan", "all"],
+                        "description": "Filter strategy (default: safe)",
+                    },
+                    "use_trash": {"type": "boolean", "description": "Send to recycle bin (default true)"},
                 },
             },
         ),
@@ -386,6 +404,51 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent]:
             # 4. Execute
             result = delete_items(items, use_trash=use_trash)
             result["confidence_summary"] = _confidence_summary(items)
+            return _ok(result)
+
+        # ── clean_deep — full autonomous cycle ──
+        elif name == "clean_deep":
+            path = arguments.get("path", os.environ.get("USERPROFILE", "C:\\"))
+            strategy = arguments.get("strategy", "safe")
+            use_trash = arguments.get("use_trash", True)
+
+            # 1. Run all scanners
+            all_items: list[dict] = []
+            for scanner_cls in [
+                lambda: DevGarbageScanner(root=path),
+                lambda: SystemScanner(),
+                lambda: BrowserCacheScanner(),
+            ]:
+                try:
+                    s = scanner_cls()
+                    items = s.scan().to_dict().get("items", [])
+                    all_items.extend(items)
+                except Exception:
+                    pass
+
+            if not all_items:
+                return _ok({"message": "No items found to clean.", "deleted": 0})
+
+            # 2. Enrich with confidence
+            _enrich_items(all_items)
+
+            # 3. Filter by strategy
+            items = _filter_strategy(all_items, strategy)
+
+            if not items:
+                return _ok({"message": f"No items match strategy '{strategy}'.", "deleted": 0})
+
+            # 4. Execute
+            result = delete_items(items, use_trash=use_trash)
+            result["confidence_summary"] = _confidence_summary(items)
+
+            # 5. Verify — get actual freed space
+            from .clean.execute import _get_disk_free
+            _, after_free, _ = _get_disk_free(path)
+            before_free = result.get("before_free", 0)
+            result["actual_freed"] = after_free - before_free
+            result["actual_freed_human"] = format_size(max(after_free - before_free, 0))
+
             return _ok(result)
 
         # ── clean_propose (phase 1/2) ──

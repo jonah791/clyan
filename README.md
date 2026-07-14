@@ -208,6 +208,7 @@ clyan mcp
 
 | 版本 | 亮点 |
 |------|------|
+| **v0.8.0** | 完整清理周期：验证+报告（actual_freed/delta）、磁盘趋势 --trend、clean --deep 一键深清、schedule 定时清理（Windows 计划任务）、MCP clean_deep（16 tools） |
 | **v0.7.0** | 置信度引擎重构（6 信号 + 重建成本）、广度扩展（Maven/WER/Search index/JetBrains Toolbox）、Temp 递归深度、preview realpath + execute winerror + UNC 保护 |
 | **v0.6.0** | MCP 工具集大扩展（15 个）、`scan_disk`/`clean_auto`/`get_confidence_summary`、两阶段清理协议 |
 | **v0.5.0** | 磁盘概览 `scan disk`（层次目录树 + --depth）、Temp 深度扫描、孤儿临时目录置信度加成 |

@@ -3,11 +3,31 @@ import sys
 import shutil
 import subprocess
 import time
+import ctypes
+import ctypes.wintypes
 from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from ..core.config import is_protected
 from ..core.history import record_clean
 from ..utils.size import format_size
+
+
+def _get_disk_free(path: str) -> tuple[int, int, int]:
+    """Measure free space on the drive containing *path*.
+    Returns (total, free, used) bytes."""
+    root = os.path.splitdrive(os.path.abspath(path))[0] + "\\"
+    try:
+        fba = ctypes.c_ulonglong(0)
+        tb = ctypes.c_ulonglong(0)
+        tfb = ctypes.c_ulonglong(0)
+        ctypes.windll.kernel32.GetDiskFreeSpaceExW(
+            root, ctypes.byref(fba), ctypes.byref(tb), ctypes.byref(tfb),
+        )
+        t = tb.value
+        f = fba.value
+        return t, f, t - f
+    except Exception:
+        return 0, 0, 0
 
 
 # Thresholds for native Windows delete (rd / del via cmd.exe).
@@ -125,6 +145,11 @@ def _delete_one(path: str, size: int, use_trash: bool, fast: bool) -> dict:
 
 def delete_items(items: list[dict], use_trash: bool = True, fast: bool = False) -> dict:
     start = time.time()
+
+    # Measure free space BEFORE deletion (first item's drive)
+    ref_path = items[0].get("path", ".") if items else "."
+    _, before_free, _ = _get_disk_free(ref_path)
+
     total_freed = 0
     success_count = 0
     fail_count = 0
@@ -199,9 +224,17 @@ def delete_items(items: list[dict], use_trash: bool = True, fast: bool = False) 
                 results.append(res)
 
     elapsed = time.time() - start
+
+    # Measure free space AFTER deletion
+    _, after_free, _ = _get_disk_free(ref_path)
+    actual_freed = after_free - before_free
+    delta = actual_freed - total_freed
+
     op_id = record_clean(
         [r for r in results if r.get("success")],
         total_freed,
+        before_free=before_free,
+        after_free=after_free,
     )
 
     return {
@@ -211,6 +244,13 @@ def delete_items(items: list[dict], use_trash: bool = True, fast: bool = False) 
         "already_gone": already_gone_count,
         "total_freed": total_freed,
         "total_freed_human": format_size(total_freed),
+        "before_free": before_free,
+        "after_free": after_free,
+        "actual_freed": actual_freed,
+        "actual_freed_human": format_size(max(actual_freed, 0)),
+        "delta": delta,
+        "delta_human": format_size(abs(delta)) if delta != 0 else "0",
+        "delta_note": "回收站延迟" if delta < 0 else "磁盘碎片/压缩" if delta > total_freed * 0.1 else "",
         "use_trash": use_trash,
         "fast_mode": fast,
         "elapsed_seconds": round(elapsed, 1),

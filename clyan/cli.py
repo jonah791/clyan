@@ -127,7 +127,37 @@ def cmd_scan_disk(args: argparse.Namespace) -> None:
     reset_dir_total_cache()
     depth = getattr(args, "depth", 2)
     result = scan_disk(args.path, depth=depth)
-    _out(result.to_dict())
+    d = result.to_dict()
+
+    # Auto-record snapshot for trend tracking
+    disk = d.get("disk", {})
+    if disk.get("total"):
+        from .core.history import record_disk_snapshot
+        record_disk_snapshot(
+            path=disk["path"],
+            total=disk["total"],
+            free=disk["free"],
+            used=disk["used"],
+        )
+
+    # If --trend requested, attach history
+    if getattr(args, "trend", False):
+        from .core.history import get_disk_trend
+        snapshots = get_disk_trend(disk.get("path", args.path), limit=14)
+        if len(snapshots) >= 2:
+            trends = []
+            for i in range(1, len(snapshots)):
+                prev, curr = snapshots[i - 1], snapshots[i]
+                delta_free = curr["free_size"] - prev["free_size"]
+                trends.append({
+                    "date": curr["timestamp"][:10],
+                    "used_pct": round(curr["used_size"] / max(curr["total_size"], 1) * 100, 1),
+                    "free_gb": round(curr["free_size"] / 1e9, 1),
+                    "delta_free_gb": round(delta_free / 1e9, 1),
+                })
+            d["trend"] = trends
+
+    _out(d)
 
 
 def _filter_by_safety(items: list[dict], level: str) -> list[dict]:
@@ -164,7 +194,125 @@ def _summarize_confidence(items: list[dict]) -> dict:
     }
 
 
+def _cmd_clean_deep(args: argparse.Namespace) -> None:
+    """Full autonomous cleaning cycle: scan → score → filter → execute → verify → report."""
+    from .scan.dev_garbage import DevGarbageScanner
+    from .scan.system import SystemScanner
+    from .scan.browser_cache import BrowserCacheScanner
+    from .clean.execute import delete_items, _get_disk_free
+    from .scan.disk_summary import scan_disk
+
+    root = getattr(args, "path", os.environ.get("USERPROFILE", "C:\\"))
+    strategy = getattr(args, "strategy", "safe")
+    yes_mode = getattr(args, "yes", False)
+
+    print("🔍 Scanning for cleanable items...", file=sys.stderr)
+
+    # Phase 1: Run all scanners
+    all_items = []
+    for scanner, label in [
+        (DevGarbageScanner(root=root), "developer garbage"),
+        (SystemScanner(), "system temp"),
+        (BrowserCacheScanner(), "browser caches"),
+    ]:
+        try:
+            r = scanner.scan()
+            items = r.to_dict().get("items", [])
+            all_items.extend(items)
+            print(f"  ✓ {label}: {len(items)} items", file=sys.stderr)
+        except Exception as e:
+            print(f"  ✗ {label}: {e}", file=sys.stderr)
+
+    if not all_items:
+        _out({"error": "no items found to clean"})
+        return
+
+    # Phase 2: Score with confidence
+    _ensure_confidence(all_items)
+
+    # Phase 3: Filter
+    from .utils.confidence import REBUILD_NONE, REBUILD_LOW
+    if strategy == "safe":
+        filtered = [i for i in all_items if i.get("confidence", 0) >= 0.90
+                    and i.get("safety") == "safe"]
+    elif strategy == "aged":
+        filtered = [i for i in all_items if i.get("age_days", 0) >= 90
+                    and i.get("safety") != "unsafe"]
+    elif strategy == "orphan":
+        filtered = [i for i in all_items if i.get("tool_installed") is False
+                    or i.get("orphan") is True]
+    elif strategy == "all":
+        filtered = [i for i in all_items if i.get("safety") != "unsafe"]
+    else:
+        filtered = all_items
+
+    if not filtered:
+        _out({"error": f"no items match strategy '{strategy}'"})
+        return
+
+    total_predicted = sum(i.get("size", 0) for i in filtered)
+    cs = _summarize_confidence(filtered)
+
+    # Phase 4: Show impact
+    print(f"\n📊 Impact summary:", file=sys.stderr)
+    print(f"  Items to delete: {len(filtered)}", file=sys.stderr)
+    print(f"  Predicted freed: {format_size(total_predicted)}", file=sys.stderr)
+    print(f"  Confidence: {cs['high_confidence']} high, {cs['mid_confidence']} mid, {cs['low_confidence']} low", file=sys.stderr)
+
+    # Show top 10 items
+    filtered.sort(key=lambda x: -x.get("size", 0))
+    print(f"\n  Top items:", file=sys.stderr)
+    for item in filtered[:10]:
+        sz = format_size(item.get("size", 0))
+        print(f"    {sz:>9s}  {item.get('label','') or item['path'][:50]}", file=sys.stderr)
+
+    # Phase 5: Confirm
+    if not yes_mode:
+        try:
+            resp = input("\nContinue? [Y/n]: ").strip().lower()
+            if resp not in ("", "y", "yes"):
+                _out({"message": "cancelled by user"})
+                return
+        except (EOFError, KeyboardInterrupt):
+            _out({"message": "cancelled by user"})
+            return
+
+    # Phase 6: Execute
+    print(f"\n🧹 Cleaning...", file=sys.stderr)
+    res = delete_items(filtered, use_trash=not getattr(args, "permanent", False),
+                       fast=getattr(args, "fast", False))
+
+    # Phase 7: Verify — measure actual freed space
+    ref_path = filtered[0].get("path", root) if filtered else root
+    _, after_free, _ = _get_disk_free(ref_path)
+    actual_freed = after_free - res.get("before_free", after_free)
+
+    res["confidence_summary"] = cs
+    res["actual_freed"] = actual_freed
+    res["actual_freed_human"] = format_size(max(actual_freed, 0))
+    res["total_predicted"] = total_predicted
+    res["total_predicted_human"] = format_size(total_predicted)
+    res["root"] = root
+    res["strategy"] = strategy
+
+    # Also get disk summary after cleanup
+    print(f"  Verifying disk space...", file=sys.stderr)
+    try:
+        disk_result = scan_disk(root, depth=1)
+        disk_data = disk_result.to_dict()
+        res["disk_after"] = disk_data.get("disk", {})
+    except Exception:
+        pass
+
+    _out(res)
+
+
 def cmd_clean(args: argparse.Namespace) -> None:
+    # --deep mode: full autonomous cleaning cycle
+    if getattr(args, "deep", False):
+        _cmd_clean_deep(args)
+        return
+
     if args.items:
         if os.path.isfile(args.items):
             with open(args.items, "r", encoding="utf-8-sig") as f:
@@ -291,6 +439,8 @@ def build_parser() -> argparse.ArgumentParser:
                          help="drive or directory path (default: C:\)")
     sp_disk.add_argument("--depth", type=int, default=2,
                          help="how many levels to show (default: 2)")
+    sp_disk.add_argument("--trend", action="store_true",
+                         help="show disk usage history (requires prior snapshots)")
 
     cp = sub.add_parser("clean", help="preview or execute cleanup")
     cp.add_argument("--items", help="path to JSON file or JSON string with items")
@@ -307,6 +457,14 @@ def build_parser() -> argparse.ArgumentParser:
                     help="only process items with confidence >= this threshold")
     cp.add_argument("--auto-safe", action="store_true",
                     help="only delete items with confidence >= 0.90 AND safety=safe")
+    cp.add_argument("--deep", action="store_true",
+                    help="full autonomous cleaning cycle: scan → score → filter → execute → verify")
+    cp.add_argument("--yes", action="store_true",
+                    help="skip confirmation prompt (for --deep mode)")
+    cp.add_argument("--strategy", choices=["safe", "aged", "orphan", "all"], default="safe",
+                    help="filter strategy for --deep mode (default: safe)")
+    cp.add_argument("--path", default=None,
+                    help="root path for --deep scan (default: user profile)")
 
     hp = sub.add_parser("history", help="view cleanup history")
     hp.add_argument("--id", type=int, help="operation ID to inspect")
@@ -317,7 +475,68 @@ def build_parser() -> argparse.ArgumentParser:
 
     mp = sub.add_parser("mcp", help="start MCP server for AI tool calls")
 
+    sp = sub.add_parser("schedule", help="manage scheduled cleanup tasks")
+    sp.add_argument("--create", action="store_true",
+                    help="create a weekly scheduled cleanup (runs clean --deep --yes)")
+    sp.add_argument("--remove", action="store_true",
+                    help="remove the scheduled cleanup task")
+    sp.add_argument("--path", default="C:\\",
+                    help="drive or path to clean (default: C:\)")
+    sp.add_argument("--time", default="03:00",
+                    help="time to run, e.g. 03:00 (default: 3 AM)")
+
     return p
+
+
+def cmd_schedule(args: argparse.Namespace) -> None:
+    if args.create:
+        _schedule_create(args)
+    elif args.remove:
+        _schedule_remove(args)
+    else:
+        print("Usage: clyan schedule --create [--time 03:00] [--path C:\]")
+        print("       clyan schedule --remove")
+
+
+def _schedule_create(args: argparse.Namespace) -> None:
+    """Create a Windows scheduled task for weekly cleanup."""
+    import subprocess
+    python_exe = sys.executable
+    clyan_script = os.path.join(os.path.dirname(__file__), "__main__.py")
+    if not os.path.exists(clyan_script):
+        clyan_script = os.path.join(os.path.dirname(__file__), "cli.py")
+    task_name = "ClyanWeeklyCleanup"
+    cmd = f'"{python_exe}" -m clyan clean --deep --yes --strategy safe --path "{args.path}"'
+    schtask_cmd = [
+        "schtasks", "/Create", "/TN", task_name, "/SC", "WEEKLY",
+        "/ST", args.time, "/TR", cmd,
+        "/F",  # Force overwrite if exists
+    ]
+    try:
+        r = subprocess.run(schtask_cmd, capture_output=True, text=True, creationflags=0x08000000)
+        if r.returncode == 0:
+            _out({"message": f"Scheduled task '{task_name}' created. Runs weekly at {args.time}."})
+        else:
+            _out({"error": f"Failed to create task: {r.stderr.strip() or r.stdout.strip()}"})
+    except Exception as e:
+        _out({"error": f"Failed to create task: {e}"})
+
+
+def _schedule_remove(args: argparse.Namespace) -> None:
+    """Remove the scheduled cleanup task."""
+    import subprocess
+    task_name = "ClyanWeeklyCleanup"
+    try:
+        r = subprocess.run(
+            ["schtasks", "/Delete", "/TN", task_name, "/F"],
+            capture_output=True, text=True, creationflags=0x08000000,
+        )
+        if r.returncode == 0:
+            _out({"message": f"Scheduled task '{task_name}' removed."})
+        else:
+            _out({"error": f"Failed to remove task: {r.stderr.strip() or r.stdout.strip()}"})
+    except Exception as e:
+        _out({"error": f"Failed to remove task: {e}"})
 
 
 def main() -> None:
@@ -348,6 +567,8 @@ def main() -> None:
         cmd_undo(args)
     elif args.command == "mcp":
         cmd_mcp(args)
+    elif args.command == "schedule":
+        cmd_schedule(args)
     else:
         parser.print_help()
 
