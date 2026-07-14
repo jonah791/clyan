@@ -125,7 +125,8 @@ def cmd_scan_quick(args: argparse.Namespace) -> None:
 
 def cmd_scan_disk(args: argparse.Namespace) -> None:
     reset_dir_total_cache()
-    result = scan_disk(args.path)
+    depth = getattr(args, "depth", 2)
+    result = scan_disk(args.path, depth=depth)
     _out(result.to_dict())
 
 
@@ -288,6 +289,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp_disk = sp_sub.add_parser("disk", help="disk usage summary: capacity + top dirs + reclaimable")
     sp_disk.add_argument("path", nargs="?", default="C:\\",
                          help="drive or directory path (default: C:\)")
+    sp_disk.add_argument("--depth", type=int, default=2,
+                         help="how many levels to show (default: 2)")
 
     cp = sub.add_parser("clean", help="preview or execute cleanup")
     cp.add_argument("--items", help="path to JSON file or JSON string with items")
