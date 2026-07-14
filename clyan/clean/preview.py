@@ -10,19 +10,22 @@ def generate_preview(items: list[dict]) -> dict:
     total = 0
 
     for item in items:
-        path = item.get("path", "")
+        raw_path = item.get("path", "")
         size = item.get("size", 0)
+        # Resolve symlinks/junctions so is_protected sees the real path
+        try:
+            path = os.path.realpath(raw_path)
+        except Exception:
+            path = os.path.normpath(raw_path)
         if is_protected(path):
             blocked.append({
-                "path": path,
-                "size": size,
+                "path": raw_path, "size": size,
                 "reason": "protected system path",
             })
             continue
         if not os.path.exists(path):
             blocked.append({
-                "path": path,
-                "size": size,
+                "path": raw_path, "size": size,
                 "reason": "path does not exist",
             })
             continue

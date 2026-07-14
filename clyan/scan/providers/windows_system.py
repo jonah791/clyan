@@ -30,7 +30,7 @@ def _scan_windows_update(root: str) -> list[CacheItem]:
                 extra={"type": "windows_update", "admin_required": True},
             ))
 
-    catroot2 = os.path.join(system32, "System32", "catroot2")
+    catroot2 = os.path.join(system32, "catroot2")
     if os.path.isdir(catroot2):
         sz = dir_total(catroot2)
         if sz > 0:
@@ -147,6 +147,44 @@ def _scan_dotnet(root: str) -> list[CacheItem]:
     return results
 
 
+def _scan_wer(root: str) -> list[CacheItem]:
+    """Windows Error Reporting — crash dumps, can be many GB."""
+    results = []
+    wer = os.path.join(os.environ.get("ProgramData", "C:\\ProgramData"),
+                       "Microsoft", "Windows", "WER")
+    if os.path.isdir(wer):
+        sz = dir_total(wer)
+        if sz > 0:
+            results.append(CacheItem(
+                path=wer, size=sz, provider="windows_system",
+                label="Windows Error Reporting (crash dumps)",
+                safety=SafetyLevel.SAFE,
+                extra={"type": "wer", "rebuild_cost": "none"},
+            ))
+    return results
+
+
+def _scan_search_index(root: str) -> list[CacheItem]:
+    """Windows Search index — auto-rebuilds."""
+    results = []
+    si = os.path.join(os.environ.get("ProgramData", "C:\\ProgramData"),
+                      "Microsoft", "Search")
+    if os.path.isdir(si):
+        sz = 0
+        for sub in ("Data", "Applications"):
+            p = os.path.join(si, sub)
+            if os.path.isdir(p):
+                sz += dir_total(p)
+        if sz > 0:
+            results.append(CacheItem(
+                path=si, size=sz, provider="windows_system",
+                label="Windows Search index",
+                safety=SafetyLevel.SAFE,
+                extra={"type": "search_index", "rebuild_cost": "none"},
+            ))
+    return results
+
+
 register("windows_update", _scan_windows_update)
 register("prefetch", _scan_prefetch)
 register("delivery_opt", _scan_delivery_opt)
@@ -154,3 +192,5 @@ register("font_cache", _scan_font_cache)
 register("recent_items", _scan_recent)
 register("thumbnail_cache", _scan_thumbnail_cache)
 register("dotnet_ngen", _scan_dotnet)
+register("wer_reports", _scan_wer)
+register("search_index", _scan_search_index)

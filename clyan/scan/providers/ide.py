@@ -32,6 +32,31 @@ def _scan_ide(root: str) -> list[CacheItem]:
     jetbrains_dir = os.path.join(local_appdata, "JetBrains")
     if os.path.isdir(jetbrains_dir):
         for version in os.listdir(jetbrains_dir):
+            # Skip: just the apps/ subdir (not a cache dir itself)
+            if version == "apps":
+                # Toolbox apps/IDE-version/ch-0/ dirs may have log/cache subdirs
+                apps_dir = os.path.join(jetbrains_dir, "apps")
+                if os.path.isdir(apps_dir):
+                    for ide_name in os.listdir(apps_dir):
+                        ide_dir = os.path.join(apps_dir, ide_name)
+                        if not os.path.isdir(ide_dir):
+                            continue
+                        for ch in os.listdir(ide_dir):
+                            ch_dir = os.path.join(ide_dir, ch)
+                            if not os.path.isdir(ch_dir):
+                                continue
+                            for sub in ["caches", "index", "tmp", "logs"]:
+                                p = os.path.join(ch_dir, sub)
+                                if os.path.isdir(p):
+                                    sz = dir_total(p)
+                                    if sz > 0:
+                                        results.append(CacheItem(
+                                            path=p, size=sz, provider="ide",
+                                            label=f"JetBrains {sub} ({ide_name})",
+                                            safety=SafetyLevel.CAUTION,
+                                            extra={"type": "jetbrains", "version": ide_name, "sub": sub},
+                                        ))
+                continue
             for sub in ["caches", "index", "tmp", "logs"]:
                 p = os.path.join(jetbrains_dir, version, sub)
                 if os.path.isdir(p):
@@ -44,16 +69,19 @@ def _scan_ide(root: str) -> list[CacheItem]:
                             extra={"type": "jetbrains", "version": version, "sub": sub},
                         ))
 
-    intellij_dir = os.path.join(user_home(), ".IntelliJIdea", "system", "caches")
-    if os.path.isdir(intellij_dir):
-        sz = dir_total(intellij_dir)
-        if sz > 0:
-            results.append(CacheItem(
-                path=intellij_dir, size=sz, provider="ide",
-                label="IntelliJ IDEA caches",
-                safety=SafetyLevel.CAUTION,
-                extra={"type": "intellij"},
-            ))
+    # IntelliJ / PyCharm / WebStorm / CLion / etc. system caches
+    ide_system_dirs = [".IntelliJIdea", ".PyCharm", ".WebStorm", ".CLion", ".GoLand", ".DataGrip", ".Rider"]
+    for ide_dir in ide_system_dirs:
+        p = os.path.join(user_home(), ide_dir, "system", "caches")
+        if os.path.isdir(p):
+            sz = dir_total(p)
+            if sz > 0:
+                results.append(CacheItem(
+                    path=p, size=sz, provider="ide",
+                    label=f"{ide_dir} caches",
+                    safety=SafetyLevel.CAUTION,
+                    extra={"type": "jetbrains"},
+                ))
 
     for pkg_dir in [os.path.join(user_home(), ".vscode", "extensions")]:
         if os.path.isdir(pkg_dir):

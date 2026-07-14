@@ -54,56 +54,75 @@ def _get_windows_temp() -> list[CacheItem]:
     return results
 
 
-def _scan_temp_breakdown() -> list[CacheItem]:
-    """Deep-scan Temp to show largest subdirectories inside.
+# Expanded orphan prefixes — matches confidence.py
+_ORPHAN_PREFIXES = ("pip-unpack-", "npm-", "tmp-", "conda-", "msi-", "vs_")
 
-    Identifies known orphan patterns (pip-unpack-*, npm-*, tmp-*)
-    left behind by crashed or interrupted processes.
+
+def _scan_temp_breakdown(depth: int = 2) -> list[CacheItem]:
+    """Recursively scan Temp for largest subdirectories and orphan temp dirs.
+
+    *depth=1* scans only direct children.
+    *depth=2* (default) also checks inside orphan / large dirs.
     """
     results = []
     temp = os.environ.get("TEMP", "")
     if not temp or not os.path.isdir(temp):
         return results
 
-    orphan_patterns = ("pip-unpack-", "npm-", "tmp-")
-    items = []
-    try:
-        with os.scandir(temp) as it:
-            for e in it:
-                try:
-                    if not e.is_dir(follow_symlinks=False):
-                        continue
-                    sz = dir_total(e.path)
-                    if sz == 0:
-                        continue
-                    name = e.name
-                    extra: dict = {"type": "temp_subdir"}
+    def _scan_dir(parent: str, current_depth: int) -> list[CacheItem]:
+        items = []
+        try:
+            with os.scandir(parent) as it:
+                for e in it:
+                    try:
+                        if not e.is_dir(follow_symlinks=False):
+                            continue
+                        name = e.name
+                        sz = dir_total(e.path)
+                        if sz == 0:
+                            continue
+                        extra: dict = {"type": "temp_subdir"}
+                        is_orphan = any(name.startswith(p) for p in _ORPHAN_PREFIXES)
+                        if is_orphan:
+                            extra["orphan"] = True
+                            # Classify orphan type
+                            if name.startswith("pip-unpack"):
+                                extra["orphan_type"] = "pip"
+                            elif name.startswith("npm-"):
+                                extra["orphan_type"] = "npm"
+                            elif name.startswith("conda-"):
+                                extra["orphan_type"] = "conda"
+                            elif name.startswith("tmp-"):
+                                extra["orphan_type"] = "tmp"
+                            else:
+                                extra["orphan_type"] = "installer"
+                        # Recurse into orphan dirs or large dirs at depth 1
+                        if current_depth < depth and (is_orphan or sz >= 100 * 1024 * 1024):
+                            children = _scan_dir(e.path, current_depth + 1)
+                            if children:
+                                extra["children"] = [c.to_dict() for c in children]
+                        if sz >= 10 * 1024 * 1024:
+                            items.append(CacheItem(
+                                path=e.path, size=sz,
+                                provider="system_temp_deep",
+                                label=f"Temp: {name}",
+                                safety=DangerLevel.SAFE,
+                                extra=extra,
+                            ))
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        items.sort(key=lambda x: -x.size)
+        return items[:15]
 
-                    # Detect known orphan patterns
-                    if any(name.startswith(p) for p in orphan_patterns):
-                        extra["orphan"] = True
-                        extra["orphan_type"] = "pip" if name.startswith("pip-unpack") else "other_tmp"
-
-                    if sz >= 10 * 1024 * 1024:  # Only items >= 10 MB
-                        items.append((sz, name, e.path, extra))
-                except Exception:
-                    pass
-    except Exception:
-        pass
-
-    items.sort(key=lambda x: -x[0])
-    for sz, name, path, extra in items[:15]:
-        results.append(CacheItem(
-            path=path, size=sz, provider="system_temp_deep",
-            label=f"Temp: {name}", safety=DangerLevel.SAFE, extra=extra,
-        ))
-
-    return results
+    return _scan_dir(temp, 1)
 
 
 class SystemScanner(BaseScanner):
-    def __init__(self, deep_temp: bool = True):
+    def __init__(self, deep_temp: bool = True, temp_depth: int = 2):
         self.deep_temp = deep_temp
+        self.temp_depth = temp_depth
 
     def scan(self) -> ScanResult:
         result = ScanResult()
@@ -116,7 +135,7 @@ class SystemScanner(BaseScanner):
 
         # Deep Temp breakdown: largest subdirs inside Temp
         if self.deep_temp:
-            for item in _scan_temp_breakdown():
+            for item in _scan_temp_breakdown(depth=self.temp_depth):
                 result.items.append(item.to_dict())
                 result.total_size += item.size
 

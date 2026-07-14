@@ -191,6 +191,11 @@ def _init():
 
 def is_protected(path: str) -> bool:
     _init()
+
+    # UNC paths (\server\share or //server/share) — block by default
+    if path.lstrip().startswith(("\\\\", "//")):
+        return True
+
     norm = os.path.normpath(path)
 
     # Find all matching protection rules

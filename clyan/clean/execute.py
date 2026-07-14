@@ -25,10 +25,14 @@ def _rd(path: str) -> bool:
     """Native Windows recursive directory delete via cmd.
     1.3x faster than shutil.rmtree for deep trees; only worthwhile above 500 MB."""
     try:
+        # Add \\?\ prefix for long paths (> 240 chars) to bypass MAX_PATH
+        delete_path = path
+        if len(path) > 240 and not path.startswith("\\\\?\\"):
+            delete_path = "\\\\?\\" + os.path.normpath(path)
         subprocess.run(
-            ["cmd", "/c", "rd", "/s", "/q", path],
+            ["cmd", "/c", "rd", "/s", "/q", delete_path],
             capture_output=True,
-            timeout=60,
+            timeout=120,
             creationflags=_CREATE_NO_WINDOW,
         )
         return not os.path.exists(path)
@@ -82,19 +86,40 @@ def _delete_one(path: str, size: int, use_trash: bool, fast: bool) -> dict:
 
     except Exception as e:
         err_msg = str(e)
-        known = {
-            "-2147024809": "系统保护路径，拒绝访问（可能需要管理员权限或 DISM 清理）",
-            "-2144927704": "路径过长（尝试 --fast 直接删除）",
-            "-2144927711": "权限不足或文件正在使用中（尝试 --fast 或以管理员身份运行）",
+        win_err = getattr(e, "winerror", None)
+        time.sleep_val = 0.5
+
+        if win_err is not None:
+            known_win = {
+                5: "权限不足（拒绝访问）",
+                32: "文件正在被其他程序使用",
+                206: "路径过长（文件系统限制）",
+                145: "目录非空",
+            }
+            hint = known_win.get(win_err, f"Windows 错误 {win_err}")
+            # Retry permission / in-use errors once
+            if win_err in (5, 32):
+                try:
+                    time.sleep(time.sleep_val)
+                    if os.path.isdir(path):
+                        shutil.rmtree(path, ignore_errors=False)
+                    else:
+                        os.remove(path)
+                    return {"path": path, "size": size, "success": True, "method": "direct_retry"}
+                except Exception:
+                    pass
+            return {"path": path, "size": size, "success": False, "error": hint}
+
+        # Fallback: string matching for non-Windows or unknown errors
+        known_str = {
             "access is denied": "权限不足，以管理员身份运行重试",
-            "file exists": "路径已存在",
-            "directory not empty": "目录非空",
             "permission denied": "权限不足",
+            "directory not empty": "目录非空",
+            "file exists": "路径已存在",
         }
-        for code, hint in known.items():
+        for code, hint in known_str.items():
             if code in err_msg.lower():
-                err_msg = hint
-                break
+                return {"path": path, "size": size, "success": False, "error": hint}
         return {"path": path, "size": size, "success": False, "error": err_msg}
 
 
