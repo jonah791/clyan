@@ -1,6 +1,8 @@
 import sys
 import json
 import anyio
+import uuid
+from typing import Any
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
@@ -11,12 +13,65 @@ from .scan.browser_cache import BrowserCacheScanner
 from .scan.system import SystemScanner
 from .scan.duplicates import DuplicateScanner
 from .scan.packages import PackagesScanner
+from .scan.disk_summary import scan_disk as scan_disk_fn
 from .clean.preview import generate_preview
 from .clean.execute import delete_items
 from .core.history import get_history, get_operation, mark_undone
+from .utils.scanner_base import _enrich
+from .utils.confidence import compute_and_attach, compute as compute_confidence
 
 
-server = Server("clyan", version="0.1.0")
+server = Server("clyan", version="0.6.0")
+
+# ── In-memory store for two-phase clean proposals ──
+_proposals: dict[str, dict[str, Any]] = {}
+
+
+def _enrich_items(items: list[dict]) -> None:
+    """Attach signals + confidence to every item in-place."""
+    for item in items:
+        try:
+            _enrich(item)
+            compute_and_attach(item)
+        except Exception:
+            item.setdefault("confidence", 0.0)
+            item.setdefault("reason", "")
+
+
+def _confidence_summary(items: list[dict]) -> dict:
+    high = [i for i in items if i.get("confidence", 0) >= 0.8]
+    mid = [i for i in items if 0.5 <= i.get("confidence", 0) < 0.8]
+    low = [i for i in items if i.get("confidence", 0) < 0.5]
+    return {
+        "total_items": len(items),
+        "high_confidence": len(high),
+        "mid_confidence": len(mid),
+        "low_confidence": len(low),
+        "avg_confidence": round(
+            sum(i.get("confidence", 0) for i in items) / max(len(items), 1), 2
+        ),
+    }
+
+
+def _filter_strategy(items: list[dict], strategy: str) -> list[dict]:
+    """Apply a named strategy to filter items."""
+    if strategy == "safe":
+        return [i for i in items if i.get("confidence", 0) >= 0.90
+                and i.get("safety") == "safe"]
+    elif strategy == "aged":
+        return [i for i in items if i.get("age_days", 0) >= 90
+                and i.get("safety") != "unsafe"]
+    elif strategy == "orphan":
+        return [i for i in items if i.get("tool_installed") is False
+                or i.get("orphan") is True]
+    elif strategy == "all":
+        return [i for i in items if i.get("safety") != "unsafe"]
+    return items
+
+
+# ──────────────────────────────────────────────
+# Tool registration
+# ──────────────────────────────────────────────
 
 
 @server.list_tools()
@@ -30,7 +85,6 @@ async def handle_list_tools() -> list[Tool]:
                 "properties": {
                     "path": {"type": "string", "description": "Root path to scan, e.g. C:\\"},
                 },
-                "required": [],
             },
         ),
         Tool(
@@ -72,6 +126,96 @@ async def handle_list_tools() -> list[Tool]:
             },
         ),
         Tool(
+            name="scan_disk",
+            description="Disk usage summary: total / used / free capacity, tree of largest directories, and reclaimable garbage estimate.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Drive or directory (default: C:\\)"},
+                    "depth": {"type": "number", "description": "How many directory levels to show (default: 2)"},
+                },
+            },
+        ),
+        Tool(
+            name="scan_packages",
+            description="Scan installed package environments (conda, scoop, cargo, go, npm) for cleanup candidates.",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+            },
+        ),
+        Tool(
+            name="get_confidence_summary",
+            description="Attach confidence scores + reasons to an items list and return a distribution summary. Useful after any scan to help decide what to delete.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "items": {"type": "object"},
+                        "description": "List of items from a scan. Each should have path, size, safety, provider.",
+                    },
+                },
+                "required": ["items"],
+            },
+        ),
+        Tool(
+            name="clean_auto",
+            description="One-shot autonomous cleanup: scan dev-garbage on path, score confidence, filter by strategy, execute. Returns clean result + confidence summary. Safer than manual clean_execute because it pre-filters.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Root path to scan and clean"},
+                    "strategy": {
+                        "type": "string",
+                        "description": "Filter strategy. 'safe' (confidence>=90%, SAFE only, default), 'aged' (unused ≥90d), 'orphan' (tool uninstalled), 'all' (skip only UNSAFE).",
+                        "enum": ["safe", "aged", "orphan", "all"],
+                    },
+                    "min_confidence": {
+                        "type": "number",
+                        "description": "Override minimum confidence 0.0-1.0. Overrides strategy default.",
+                    },
+                    "use_trash": {
+                        "type": "boolean",
+                        "description": "Send to recycle bin (default true). Use false for permanent delete.",
+                    },
+                },
+            },
+        ),
+        Tool(
+            name="clean_propose",
+            description="Phase 1 of safe cleanup: receives items, enriches with confidence, returns an action_id + preview + confidence summary. Items are NOT deleted yet — call clean_confirm with the action_id to execute. Use this when you want to show the user what will happen before committing.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "items": {"type": "object"},
+                        "description": "List of items to consider for deletion.",
+                    },
+                    "fast": {
+                        "type": "boolean",
+                        "description": "Use direct deletion (skip recycle bin) for large items.",
+                    },
+                },
+                "required": ["items"],
+            },
+        ),
+        Tool(
+            name="clean_confirm",
+            description="Phase 2 of safe cleanup: executes the items previously proposed via clean_propose. Takes an action_id returned by clean_propose. Returns the actual delete result.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "action_id": {
+                        "type": "string",
+                        "description": "The action_id returned by a prior clean_propose call.",
+                    },
+                },
+                "required": ["action_id"],
+            },
+        ),
+        Tool(
             name="clean_preview",
             description="Preview what would be deleted. Checks protected paths, returns valid + blocked items.",
             inputSchema={
@@ -87,7 +231,7 @@ async def handle_list_tools() -> list[Tool]:
                                 "type": {"type": "string"},
                             },
                         },
-                        "description": "List of items to preview. Each has path, size, type.",
+                        "description": "List of items to preview.",
                     },
                 },
                 "required": ["items"],
@@ -95,7 +239,7 @@ async def handle_list_tools() -> list[Tool]:
         ),
         Tool(
             name="clean_execute",
-            description="Execute deletion. Items go to recycle bin by default. Use --fast for direct deletion of large items.",
+            description="⚠ Execute deletion immediately. Items go to recycle bin by default. Use fast=true for direct deletion.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -110,17 +254,20 @@ async def handle_list_tools() -> list[Tool]:
                             },
                         },
                     },
-                    "fast": {"type": "boolean", "description": "Use direct deletion (skip recycle bin) for large items"},
+                    "fast": {"type": "boolean", "description": "Skip recycle bin for large items."},
                 },
                 "required": ["items"],
             },
         ),
         Tool(
-            name="scan_packages",
-            description="Scan installed package environments (conda, scoop, cargo, go, npm) for cleanup candidates.",
+            name="history",
+            description="View cleanup history. Pass op_id to inspect one operation, or limit to control how many recent operations.",
             inputSchema={
                 "type": "object",
-                "properties": {},
+                "properties": {
+                    "op_id": {"type": "number", "description": "Operation ID to inspect"},
+                    "limit": {"type": "number", "description": "Max operations to return (default: 20)"},
+                },
             },
         ),
         Tool(
@@ -137,9 +284,15 @@ async def handle_list_tools() -> list[Tool]:
     ]
 
 
+# ──────────────────────────────────────────────
+# Tool handlers
+# ──────────────────────────────────────────────
+
+
 @server.call_tool()
 async def handle_call_tool(name: str, arguments: dict) -> list[TextContent]:
     try:
+        # ── scan_quick ──
         if name == "scan_quick":
             path = arguments.get("path", "C:\\")
             results = {}
@@ -155,8 +308,9 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent]:
                     results[key] = data
                 except Exception as e:
                     results[key] = {"error": str(e)}
-            return [TextContent(type="text", text=json.dumps(results, ensure_ascii=False, indent=2))]
+            return _ok(results)
 
+        # ── scan_dev_garbage ──
         elif name == "scan_dev_garbage":
             path = arguments.get("path", "C:\\")
             min_size_mb = arguments.get("min_size_mb", 0)
@@ -166,35 +320,128 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent]:
                 mb = min_size_mb * 1024 * 1024
                 data["items"] = [i for i in data["items"] if i["size"] >= mb]
                 data["item_count"] = len(data["items"])
-            return [TextContent(type="text", text=json.dumps(data, ensure_ascii=False, indent=2))]
+            return _ok(data)
 
+        # ── scan_browsers ──
         elif name == "scan_browsers":
             s = BrowserCacheScanner()
-            data = s.scan().to_dict()
-            return [TextContent(type="text", text=json.dumps(data, ensure_ascii=False, indent=2))]
+            return _ok(s.scan().to_dict())
 
+        # ── scan_system ──
         elif name == "scan_system":
             s = SystemScanner()
-            data = s.scan().to_dict()
-            return [TextContent(type="text", text=json.dumps(data, ensure_ascii=False, indent=2))]
+            return _ok(s.scan().to_dict())
 
+        # ── scan_duplicates ──
         elif name == "scan_duplicates":
             path = arguments.get("path", "C:\\")
             s = DuplicateScanner(path=path)
-            data = s.scan().to_dict()
-            return [TextContent(type="text", text=json.dumps(data, ensure_ascii=False, indent=2))]
+            return _ok(s.scan().to_dict())
 
+        # ── scan_disk ──
+        elif name == "scan_disk":
+            path = arguments.get("path", "C:\\")
+            depth = arguments.get("depth", 2)
+            result = scan_disk_fn(path=path, depth=depth)
+            return _ok(result.to_dict())
+
+        # ── scan_packages ──
+        elif name == "scan_packages":
+            s = PackagesScanner()
+            return _ok(s.scan().to_dict())
+
+        # ── get_confidence_summary ──
+        elif name == "get_confidence_summary":
+            items = arguments.get("items", [])
+            _enrich_items(items)
+            return _ok({
+                "items": items,
+                "confidence_summary": _confidence_summary(items),
+            })
+
+        # ── clean_auto ──
+        elif name == "clean_auto":
+            path = arguments.get("path", "C:\\")
+            strategy = arguments.get("strategy", "safe")
+            min_confidence = arguments.get("min_confidence")
+            use_trash = arguments.get("use_trash", True)
+
+            # 1. Scan
+            s = DevGarbageScanner(root=path)
+            data = s.scan().to_dict()
+            items = data.get("items", [])
+
+            # 2. Enrich with confidence
+            _enrich_items(items)
+
+            # 3. Filter by strategy
+            items = _filter_strategy(items, strategy)
+
+            if min_confidence is not None:
+                items = [i for i in items if i.get("confidence", 0) >= min_confidence]
+
+            if not items:
+                return _ok({"message": "No items match the filter criteria.", "deleted": 0})
+
+            # 4. Execute
+            result = delete_items(items, use_trash=use_trash)
+            result["confidence_summary"] = _confidence_summary(items)
+            return _ok(result)
+
+        # ── clean_propose (phase 1/2) ──
+        elif name == "clean_propose":
+            items = arguments.get("items", [])
+            fast = arguments.get("fast", False)
+
+            # Enrich + preview
+            _enrich_items(items)
+            preview = generate_preview(items)
+            impact = {
+                "valid_count": len(preview.get("valid_items", [])),
+                "blocked_count": len(preview.get("blocked_items", [])),
+                "total_size": sum(i.get("size", 0) for i in preview.get("valid_items", [])),
+                "confidence_summary": _confidence_summary(items),
+            }
+
+            action_id = str(uuid.uuid4())[:8]
+            _proposals[action_id] = {
+                "items": items,
+                "fast": fast,
+            }
+
+            return _ok({
+                "action_id": action_id,
+                "impact": impact,
+                "preview": preview,
+            })
+
+        # ── clean_confirm (phase 2/2) ──
+        elif name == "clean_confirm":
+            action_id = arguments.get("action_id", "")
+            proposal = _proposals.pop(action_id, None)
+            if proposal is None:
+                return _ok({"error": f"action_id '{action_id}' not found or already expired."})
+
+            items = proposal["items"]
+            fast = proposal["fast"]
+            result = delete_items(items, fast=fast)
+            result["action_id"] = action_id
+            return _ok(result)
+
+        # ── clean_preview ──
         elif name == "clean_preview":
             items = arguments.get("items", [])
             preview = generate_preview(items)
-            return [TextContent(type="text", text=json.dumps(preview, ensure_ascii=False, indent=2))]
+            return _ok(preview)
 
+        # ── clean_execute ──
         elif name == "clean_execute":
             items = arguments.get("items", [])
             fast = arguments.get("fast", False)
             result = delete_items(items, fast=fast)
-            return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
+            return _ok(result)
 
+        # ── history ──
         elif name == "history":
             op_id = arguments.get("op_id")
             limit = arguments.get("limit", 20)
@@ -202,23 +449,23 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent]:
                 data = get_operation(op_id)
             else:
                 data = {"operations": get_history(limit=limit)}
-            return [TextContent(type="text", text=json.dumps(data, ensure_ascii=False, indent=2))]
+            return _ok(data)
 
-        elif name == "scan_packages":
-            s = PackagesScanner()
-            data = s.scan().to_dict()
-            return [TextContent(type="text", text=json.dumps(data, ensure_ascii=False, indent=2))]
-
+        # ── undo ──
         elif name == "undo":
             op_id = arguments["op_id"]
             ok = mark_undone(op_id)
-            return [TextContent(type="text", text=json.dumps({"operation_id": op_id, "undone": ok}))]
+            return _ok({"operation_id": op_id, "undone": ok})
 
         else:
-            return [TextContent(type="text", text=json.dumps({"error": f"unknown tool: {name}"}))]
+            return _ok({"error": f"unknown tool: {name}"})
 
     except Exception as e:
-        return [TextContent(type="text", text=json.dumps({"error": str(e)}))]
+        return _ok({"error": str(e)})
+
+
+def _ok(data: dict) -> list[TextContent]:
+    return [TextContent(type="text", text=json.dumps(data, ensure_ascii=False, indent=2))]
 
 
 async def main():

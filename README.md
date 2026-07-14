@@ -23,7 +23,7 @@
 
 ## 性能
 
-| 扫描范围 | 规模 | v0.1.0 | **v0.5.0** | 提速 |
+| 扫描范围 | 规模 | v0.1.0 | **v0.6.0** | 提速 |
 |---------|------|--------|-----------|------|
 | 用户目录 `C:\Users\xxx` | ~40 GB | ~23s | **~2.4s** | **~90%** |
 | 全盘 C: 快速体检 | ~335 GB | ~未测量 | **~29s** | — |
@@ -158,10 +158,28 @@ clyan scan dev-garbage C:\Users\tr --explain
 clyan mcp
 ```
 
-暴露的 MCP 工具：
-- `scan_quick` / `scan_dev_garbage` / `scan_browsers` / `scan_system` / `scan_duplicates` / `scan_packages`
-- `clean_preview` / `clean_execute`
-- `history` / `undo`
+暴露的 MCP 工具（15 个）：
+
+| 工具 | 功能 |
+|------|------|
+| `scan_quick` | 全量扫描（并行所有分类） |
+| `scan_dev_garbage` | 开发者缓存/垃圾 |
+| `scan_browsers` | 浏览器缓存 |
+| `scan_system` | Windows 临时文件 + Temp 分解 |
+| `scan_duplicates` | 重复文件检测 |
+| `scan_packages` | 包管理器环境检测 |
+| `scan_disk` 🆕 | 磁盘概览：容量 + 目录树 + 可回收垃圾 |
+| `get_confidence_summary` 🆕 | 给任意 items 列表附加置信度分数 |
+| `clean_propose` 🆕 | 阶段 1：提议清理（返回 action_id + 影响分析） |
+| `clean_confirm` 🆕 | 阶段 2：确认执行（按 action_id 执行） |
+| `clean_auto` 🆕 | 一键自主清理：scan → 评分 → 过滤 → 执行 |
+| `clean_preview` | 预览（检查保护路径） |
+| `clean_execute` | ⚠ 立即执行删除 |
+| `history` | 清理历史 |
+| `undo` | 撤销清理 |
+
+> `clean_propose` + `clean_confirm` 两阶段协议让 AI agent 可以先展示影响再确认执行，避免误删。
+> `clean_auto` 适合受信 agent 一键操作：`clean_auto(path="C:\", strategy="safe")`。
 
 ## 安全体系
 
@@ -189,6 +207,7 @@ clyan mcp
 
 | 版本 | 亮点 |
 |------|------|
+| **v0.6.0** | MCP 工具集大扩展（15 个）、`scan_disk`/`clean_auto`/`get_confidence_summary`、两阶段清理协议 `clean_propose+confirm`、`history` 修复 |
 | **v0.5.0** | 磁盘概览 `scan disk`（层次目录树 + --depth）、Temp 深度扫描、孤儿临时目录置信度加成 |
 | **v0.4.0** | 垃圾置信度评分引擎 + 孤儿缓存检测 + --explain/--min-confidence/--auto-safe |
 | **v0.3.0** | 清理性能优化：原生 rd/s/q（1.3x）、并行 rmtree（3.5x）、批量回收站、is_protected LRU 缓存 |
