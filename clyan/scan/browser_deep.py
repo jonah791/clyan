@@ -48,6 +48,24 @@ def _get_firefox_profiles() -> list[str]:
     return profiles
 
 
+def _get_edge_profiles() -> list[str]:
+    """Find all Edge profile directories."""
+    profiles = []
+    local = os.environ.get("LOCALAPPDATA", "")
+    base = os.path.join(local, "Microsoft", "Edge", "User Data")
+    if not os.path.isdir(base):
+        return profiles
+    default = os.path.join(base, "Default")
+    if os.path.isdir(default):
+        profiles.append(default)
+    for name in os.listdir(base):
+        if name.startswith("Profile "):
+            p = os.path.join(base, name)
+            if os.path.isdir(p):
+                profiles.append(p)
+    return profiles
+
+
 def _db_size(path: str) -> int:
     try:
         return os.path.getsize(path)
@@ -56,39 +74,35 @@ def _db_size(path: str) -> int:
 
 
 def _estimate_savings(db_path: str, tables_to_clear: list[str]) -> int:
-    """Estimate how many bytes can be freed by deleting rows from a SQLite DB.
-    
-    Uses a pragmatic method: counts pages for listed tables vs total pages.
-    Actual VACUUM savings vary, but this gives a reasonable upper bound.
-    """
+    """Quick estimate: fraction of file size based on target/table count ratio.
+    Avoids COUNT(*) on large tables to prevent slow queries."""
     try:
-        # If file doesn't exist, no savings
         if not os.path.isfile(db_path):
             return 0
-        original_size = os.path.getsize(db_path)
+        file_size = os.path.getsize(db_path)
+        if file_size < 4096:
+            return 0
+
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=2)
+        conn.execute("PRAGMA query_only = 1")
+        conn.execute("PRAGMA busy_timeout = 2000")
         
-        # Count pages in target tables
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-        cur = conn.execute("PRAGMA page_count")
-        total_pages = cur.fetchone()[0]
-        page_size = conn.execute("PRAGMA page_size").fetchone()[0]
-        
-        total_pages_target = 0
-        for table in tables_to_clear:
-            try:
-                cur = conn.execute(f'SELECT COALESCE(SUM("pgsize"), 0) FROM dbstat WHERE name=?', (table,))
-                row = cur.fetchone()
-                if row and row[0]:
-                    total_pages_target += row[0] // page_size + 1
-            except Exception:
-                pass
+        # Get all user table names
+        cur = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+        )
+        all_tables = [row[0] for row in cur.fetchall()]
         conn.close()
         
-        # Estimate: clearing target tables frees approx (target_pages/total) * file_size
-        if total_pages == 0:
+        if not all_tables:
             return 0
-        ratio = min(total_pages_target / total_pages, 0.8)  # max 80% of file
-        return int(original_size * ratio)
+        
+        # Ratio = target tables / total tables (quick, no row counting)
+        target_count = sum(1 for t in tables_to_clear if t in all_tables)
+        if target_count == 0:
+            return 0
+        ratio = min(target_count / len(all_tables), 0.8)
+        return int(file_size * ratio)
     except Exception:
         return 0
 
@@ -187,6 +201,14 @@ def scan_browser_deep() -> dict:
     for profile in _get_chrome_profiles():
         all_items.extend(_scan_chrome_history_savings(profile))
     
+    # Edge (same Chromium internals as Chrome)
+    for profile in _get_edge_profiles():
+        items = _scan_chrome_history_savings(profile)
+        for item in items:
+            item["label"] = item["label"].replace("Chrome", "Edge")
+            item["type"] = item["type"].replace("chrome", "edge")
+        all_items.extend(items)
+    
     # Firefox
     for profile in _get_firefox_profiles():
         all_items.extend(_scan_firefox_history_savings(profile))
@@ -198,6 +220,7 @@ def scan_browser_deep() -> dict:
         "total_size": total_size,
         "items": all_items,
         "chrome_profiles": len(_get_chrome_profiles()),
+        "edge_profiles": len(_get_edge_profiles()),
         "firefox_profiles": len(_get_firefox_profiles()),
     }
 
@@ -235,6 +258,7 @@ class BrowserDeepScanner(BaseScanner):
         result.item_count = len(data["items"])
         result.extra = {
             "chrome_profiles": data["chrome_profiles"],
+            "edge_profiles": data["edge_profiles"],
             "firefox_profiles": data["firefox_profiles"],
         }
         result.scan_time_ms = (time.time() - start) * 1000
