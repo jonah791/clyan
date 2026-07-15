@@ -15,6 +15,9 @@
 - **三级安全体系**：Safe（安全可删）/ Caution（谨慎，可能需重建）/ Unsafe（不可删，含配置/凭据），配合保护路径系统和豁免规则
 - **磁盘概览 + 趋势**：`clyan scan disk C:\ --depth 2` — 总容量/已用/剩余 + 层次化目录树 + 分类占用 + `--trend` 历史变化
 - **垃圾置信度评分**：每个可清理项自动计算 0–100% 置信度（6 信号：安全级别 + 修改时间 + 工具是否卸载 + 目录名 + 孤儿标记 + **重建成本**），附中文原因说明
+- **影响预测（AI 决策支持）**：每个项目附带 `would_break`（删除后果）、`would_affect`（影响的应用）、`recovery_cost`（恢复成本 none/low/medium/high）、`ecosystem`（生态分组：node/python/rust/windows/browser/ide/ml/…）—— AI 拿到的不只有"能不能删"，还有"删了会怎样"
+- **生态分组**：每个 item 自动归属 11 个生态组（node / python / rust / go / java / dotnet / browser / ide / windows / ml / build），AI 可按组批量决策
+- **清理历史分析**：get_clean_impact_summary() 返回按 provider 统计的释放量、delta 偏差、最常清理的缓存类型
 - **应用影响预警**：删除前显示副作用——浏览器缓存→"清除登录"、依赖缓存→"需重新下载"、Temp→"无副作用"
 - **孤儿缓存检测**：自动检测包管理器（npm/pip/cargo/go/gradle/dotnet…）是否已卸载，被弃用的缓存自动提高置信度
 - **孤儿临时目录扫描**：自动识别 `%TEMP%` 内的 `pip-unpack-*`/`conda-*`/`msi-*` 等残留临时目录
@@ -32,13 +35,13 @@
 
 ## 性能
 
-| 扫描范围 | 规模 | v0.1.0 | **v0.11.0** | 提速 |
+| 扫描范围 | 规模 | v0.1.0 | **v0.13.0** | 提速 |
 |---------|------|--------|-----------|------|
 | 用户目录 `C:\Users\xxx` | ~40 GB | ~23s | **~0.2s** | **~99%** |
 | 全盘 C: 快速体检 | ~335 GB | — | **~8s** | — |
 | 全盘 C: 目录树 (depth=2) | ~335 GB | — | **~7s** | — |
-| 重复检测 40K 文件 | 4KB hash + 并行遍历 | — | **~2s** | — |
-| 扫描 dev-garbage (206项) | 50+ 构件目录 | — | **~8s** | — |
+| 重复检测 40K 文件 | 4KB hash + 并行遍历 + 持久缓存 | — | **~2s** | — |
+| 扫描 dev-garbage (208项) | 50+ 构件目录 + 影响预测 | — | **~8s** | — |
 
 ## 快速开始
 
@@ -72,6 +75,7 @@ clyan scan dev-garbage C:\ --explain
 | `scan packages` | 安装的环境包管理器 |
 | `scan disk [drive]` | 磁盘概览：总容量/已用/剩余 + 目录树 + 分类 + 可回收垃圾（--depth, --trend） |
 | `scan files <path>` | **大文件发现**：找到最大的单个文件（--min-size, --top, --json） |
+| `scan node-waste <path>` | **node_modules 内部瘦身**：非必要文件扫描（README/license/test/doc/冗余扩展名） |
 | `scan quick <path>` | 一键全量扫描（并行执行全部分类，含磁盘信息） |
 
 ### 清理
@@ -169,18 +173,39 @@ clyan clean --dedupe keep-newest --path C:\Users\tr --dry-run
 
 ```json
 {
-  "reason": "安全级别 SAFE；>90天未修改；对应工具已卸载；已知安全缓存目录名；重建无成本",
-  "confidence": 1.0,
-  "warning": "⚠ 清除后需要重新登录网站",
+  "path": "C:\\Users\\tr\\AppData\\Local\\pip\\cache",
+  "size": 3380000000,
+  "size_human": "3.38 GB",
+  "provider": "python",
+  "confidence": 0.50,
+  "reason": "安全级别 SAFE；>90天未修改；对应工具仍在系统中；已知安全缓存目录名；重建成本高",
+  "would_break": ["pip install would re-download all packages from PyPI"],
+  "would_affect": ["pip", "python", "virtualenv"],
+  "recovery_cost": "high",
+  "ecosystem": "python",
   "age_days": 120,
-  "tool_installed": false,
-  "rebuild_cost": "none"
+  "tool_installed": true
 }
 ```
 
 - **置信度 0.8–1.0**：🟢 放心删 — 安全 + 陈旧 + 孤立
 - **置信度 0.5–0.8**：🟡 很可能可删 — 安全但工具还在或近期用过
 - **置信度 < 0.5**：🔴 谨慎 — CAUTION/UNSAFE 或刚生成
+
+### AI 决策信号一览
+
+每个 item 返回的完整信号：
+
+| 字段 | 用途 | 示例 |
+|------|------|------|
+| `confidence` | 置信度 0.0–1.0 | 0.50 |
+| `reason` | 中文评分原因 | "安全级别 SAFE；>90天未修改…" |
+| `would_break` | 删除后果描述 | ["pip install would re-download…"] |
+| `would_affect` | 受影响的工具 | ["pip", "python", "virtualenv"] |
+| `recovery_cost` | 恢复成本 | "high" / "medium" / "low" / "none" |
+| `ecosystem` | 生态分组 | "python" / "node" / "windows" / "ml" |
+| `age_days` | 最近修改距今 | 120 |
+| `tool_installed` | 工具是否仍在 | true |
 
 ## MCP 服务器
 
@@ -240,6 +265,8 @@ clyan mcp
 
 | 版本 | 亮点 |
 |------|------|
+| **v0.13.0** | AI 决策支持层：影响预测（`would_break`/`would_affect`/`recovery_cost`）、生态分组（11 组）、清理历史分析、61+ provider 映射 |
+| **v0.12.0** | P1+P2+P3 同步推进：node_modules 瘦身、浏览器深度清理、Spotify/WhatsApp/ML-AI provider、去重持久缓存 |
 | **v0.11.0** | 重复检测全面提速（4KB 一档 I/O + 并行遍历 + inode 去重）、构建产物覆盖扩展（20 个新目录 + 文件级检测）、参考 ddh/dustoff 项目 |
 | **v0.10.0** | 执行层精简（AI 全权决策）、8 个新 Windows provider（Delivery Opt / SoftwareDistribution / Store / Teams / OneDrive / Defender / Xbox / 旧备份）、删硬编码阈值和 `is_protected` 拦截 |
 | **v0.9.0** | 大文件发现 `scan files`、重复文件清理 `--dedupe`、应用影响预警 `warning` 字段、confidence 下限修正 |
