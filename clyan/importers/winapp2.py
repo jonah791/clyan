@@ -74,6 +74,7 @@ _ROOT_MAP = {
 }
 
 _CATEGORY_MAP = {
+    # Human-readable
     "Applications": "app_cache",
     "Internet": "browser_cache",
     "Multimedia": "app_cache",
@@ -84,6 +85,38 @@ _CATEGORY_MAP = {
     "Games": "app_cache",
     "Security": "app_cache",
     "Accessories": "app_cache",
+    # CCleaner numeric LangSecRef codes
+    # https://github.com/MoscaDotTo/Winapp2/blob/master/LangSecRef%20Reference.md
+    "3001": "app_cache",        # Applications
+    "3002": "browser_cache",    # Internet (General/Browsers)
+    "3003": "app_cache",        # Multimedia
+    "3004": "app_cache",        # Office
+    "3005": "windows_system",   # System
+    "3006": "app_cache",        # Utilities
+    "3021": "browser_cache",    # Firefox/Mozilla
+    "3022": "browser_cache",    # Opera
+    "3023": "browser_cache",    # Safari
+    "3024": "browser_cache",    # Internet Explorer/Edge
+    "3025": "browser_cache",    # Google Chrome/Chromium
+    "3027": "browser_cache",    # Other Browsers
+    "3029": "browser_cache",    # Google Chrome specific
+    "3030": "browser_cache",    # Chromium-based
+    "3034": "browser_cache",    # Brave
+    "3035": "browser_cache",    # Vivaldi
+    "3036": "browser_cache",    # Waterfox
+    "3037": "browser_cache",    # Pale Moon
+    "3038": "browser_cache",    # SeaMonkey
+    "3039": "app_cache",        # Thunderbird
+    "3040": "app_cache",        # Flash
+    "3041": "app_cache",        # Java
+    "3043": "app_cache",        # Adobe Reader/Acrobat
+    "3044": "app_cache",        # WinRAR
+    "3045": "app_cache",        # 7-Zip
+    "3050": "app_cache",        # Microsoft Office
+    "3051": "app_cache",        # Microsoft Edge
+    "3026": "browser_cache",    # Chromium/Chrome Canary
+    "3032": "browser_cache",    # K-Meleon
+    "3033": "browser_cache",    # Netscape Navigator
 }
 
 
@@ -135,6 +168,8 @@ def _parse_reg_key(value: str) -> Optional[dict]:
 def _categorize(section: dict) -> str:
     """Determine clyan provider category from LangSecRef."""
     lsr = section.get("lang_sec_ref", "")
+    if not lsr:
+        return "app_cache"  # default for uncategorized
     return _CATEGORY_MAP.get(lsr, "winapp2")
 
 
