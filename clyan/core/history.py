@@ -1,3 +1,4 @@
+"""Clean history, disk trends, provider feedback, and trust management."""
 import os
 import json
 import sqlite3
@@ -49,18 +50,38 @@ def _conn() -> sqlite3.Connection:
             used_size INTEGER NOT NULL
         )
     """)
-    # Add columns if missing (migration for existing DBs)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS clean_feedback (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            op_id INTEGER NOT NULL,
+            provider TEXT NOT NULL,
+            predicted_size INTEGER NOT NULL,
+            actual_freed INTEGER DEFAULT NULL,
+            success INTEGER DEFAULT 1
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS trusted_paths (
+            path TEXT PRIMARY KEY,
+            label TEXT DEFAULT '',
+            created TEXT NOT NULL,
+            reason TEXT DEFAULT ''
+        )
+    """)
+    # Migration for columns
     for col in ["before_free", "after_free"]:
         try:
             conn.execute(f"ALTER TABLE clean_history ADD COLUMN {col} INTEGER DEFAULT NULL")
         except sqlite3.OperationalError:
-            pass  # column already exists
+            pass
     conn.commit()
     return conn
 
 
 def record_clean(items: list[dict], total_size: int, action: str = "delete",
                  before_free: int = 0, after_free: int = 0) -> int:
+    """Record a clean operation and per-provider feedback."""
     conn = _conn()
     now = datetime.datetime.now().isoformat()
     delta = after_free - before_free if before_free and after_free else 0
@@ -71,10 +92,148 @@ def record_clean(items: list[dict], total_size: int, action: str = "delete",
         "INSERT INTO clean_history (timestamp, action, summary, items_json, total_size, item_count, before_free, after_free) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         (now, action, summary, json.dumps(items), total_size, len(items), before_free or None, after_free or None),
     )
+    op_id = cursor.lastrowid
+
+    # Record per-provider feedback
+    by_provider: dict[str, int] = {}
+    for item in items:
+        p = item.get("provider", "unknown")
+        by_provider[p] = by_provider.get(p, 0) + item.get("size", 0)
+
+    predicted_total = sum(by_provider.values())
+    actual_total = max(delta, 0)
+    for provider, predicted in by_provider.items():
+        if predicted_total > 0 and actual_total > 0:
+            actual_freed = int(predicted / predicted_total * actual_total)
+        else:
+            actual_freed = 0 if actual_total == 0 else predicted
+        conn.execute(
+            "INSERT INTO clean_feedback (timestamp, op_id, provider, predicted_size, actual_freed, success) VALUES (?, ?, ?, ?, ?, 1)",
+            (now, op_id, provider, predicted, actual_freed),
+        )
+
     conn.commit()
     conn.close()
-    return cursor.lastrowid
+    return op_id
 
+
+def get_provider_feedback(provider: str, limit: int = 10) -> list[dict]:
+    """Return historical feedback for a specific provider.
+    
+    Returns: [{
+        "timestamp": "...",
+        "op_id": N,
+        "predicted_size": N,
+        "actual_freed": N,
+        "accuracy_ratio": 0.95,  # actual/predicted
+    }, ...]
+    """
+    conn = _conn()
+    rows = conn.execute(
+        "SELECT * FROM clean_feedback WHERE provider = ? ORDER BY id DESC LIMIT ?",
+        (provider, limit),
+    ).fetchall()
+    conn.close()
+    results = []
+    for r in rows:
+        d = dict(r)
+        pred = d.get("predicted_size", 0) or 0
+        actual = d.get("actual_freed", 0) or 0
+        d["accuracy_ratio"] = round(actual / pred, 2) if pred > 0 else 0.0
+        results.append(d)
+    return results
+
+
+def get_all_provider_feedback(limit: int = 10) -> dict:
+    """Return feedback summary for all providers that have been cleaned.
+    
+    Returns: {
+        "total_clean_ops": N,
+        "providers": {
+            "pip_cache": {
+                "clean_count": 3,
+                "total_predicted": 5000000,
+                "total_actual": 4800000,
+                "avg_accuracy": 0.96,
+            }, ...
+        }
+    }
+    """
+    conn = _conn()
+    rows = conn.execute(
+        "SELECT provider, COUNT(*) as cnt, SUM(predicted_size) as total_pred, SUM(actual_freed) as total_actual, AVG(CAST(actual_freed AS FLOAT) / CAST(MAX(predicted_size,1) AS FLOAT)) as avg_acc FROM clean_feedback GROUP BY provider ORDER BY total_pred DESC"
+    ).fetchall()
+    conn.close()
+
+    providers = {}
+    for r in rows:
+        d = dict(r)
+        providers[d["provider"]] = {
+            "clean_count": d["cnt"],
+            "total_predicted": d["total_pred"],
+            "total_predicted_human": format_size(d["total_pred"] or 0),
+            "total_actual": d["total_actual"],
+            "total_actual_human": format_size(d["total_actual"] or 0),
+            "avg_accuracy": round(d["avg_acc"], 2) if d["avg_acc"] else 0.0,
+        }
+
+    return {
+        "total_clean_ops": conn.execute("SELECT COUNT(*) FROM clean_feedback").fetchone()[0] if 'conn' in dir() else 0,
+        "providers": providers,
+    }
+
+
+# ── Trust management (B) ──
+
+def trust_add(path: str, label: str = "", reason: str = "") -> bool:
+    """Add a path to the trusted list. Once trusted, it won't trigger protected_warned."""
+    conn = _conn()
+    now = datetime.datetime.now().isoformat()
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO trusted_paths (path, label, created, reason) VALUES (?, ?, ?, ?)",
+            (os.path.normpath(path).lower(), label, now, reason),
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception:
+        conn.close()
+        return False
+
+
+def trust_remove(path: str) -> bool:
+    """Remove a path from the trusted list."""
+    conn = _conn()
+    try:
+        conn.execute("DELETE FROM trusted_paths WHERE path = ?", (os.path.normpath(path).lower(),))
+        conn.commit()
+        affected = conn.total_changes > 0
+        conn.close()
+        return affected
+    except Exception:
+        conn.close()
+        return False
+
+
+def trust_list() -> list[dict]:
+    """Return all trusted paths."""
+    conn = _conn()
+    rows = conn.execute("SELECT * FROM trusted_paths ORDER BY created DESC").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def is_trusted(path: str) -> bool:
+    """Check if a path (or its parent) is in the trusted list."""
+    norm = os.path.normpath(path).lower()
+    conn = _conn()
+    row = conn.execute("SELECT 1 FROM trusted_paths WHERE path = ?", (norm,)).fetchone()
+    conn.close()
+    return row is not None
+
+
+# ── Existing functions ──
 
 def get_history(limit: int = 20) -> list[dict]:
     conn = _conn()
@@ -106,7 +265,6 @@ def mark_undone(op_id: int) -> bool:
 
 
 def record_disk_snapshot(path: str, total: int, free: int, used: int) -> int:
-    """Save a disk usage snapshot for trend tracking."""
     conn = _conn()
     now = datetime.datetime.now().isoformat()
     cursor = conn.execute(
@@ -119,7 +277,6 @@ def record_disk_snapshot(path: str, total: int, free: int, used: int) -> int:
 
 
 def get_disk_trend(path: str, limit: int = 14) -> list[dict]:
-    """Return recent disk snapshots for *path*, oldest first, up to *limit*."""
     conn = _conn()
     rows = conn.execute(
         "SELECT * FROM disk_snapshots WHERE path = ? ORDER BY id DESC LIMIT ?",
@@ -130,74 +287,36 @@ def get_disk_trend(path: str, limit: int = 14) -> list[dict]:
 
 
 def get_clean_impact_summary(limit: int = 10) -> dict:
-    """Analyze past clean operations and return feedback for AI.
-    
-    Returns: {
-        "total_operations": N,
-        "total_freed": N (bytes),
-        "total_freed_human": "X GB",
-        "operations_by_provider": {"npm_cache": {"count": N, "total_freed": N, "avg_delta": N}, ...},
-        "recent_ops": [...],
-        "most_reclaimed_providers": [...],
-        "providers_with_negative_delta": [...],  # predicted but didn't free
-    }
-    """
     conn = _conn()
     rows = conn.execute(
         "SELECT * FROM clean_history ORDER BY id DESC LIMIT ?", (limit,)
     ).fetchall()
     conn.close()
-
     ops = [dict(r) for r in rows]
     if not ops:
         return {"total_operations": 0, "message": "No clean history yet"}
-
-    total_freed = sum(o.get("bytes_freed", 0) for o in ops)
+    total_freed = sum(o.get("total_size", 0) for o in ops)
     by_provider: dict[str, dict] = {}
     for op in ops:
         try:
             items = json.loads(op.get("items_json", "[]"))
         except Exception:
             items = []
-        provs_seen = set()
         for item in items:
             p = item.get("provider", "unknown")
             if p not in by_provider:
-                by_provider[p] = {"count": 0, "total_freed": 0, "total_predicted": 0}
+                by_provider[p] = {"count": 0, "total_freed": 0}
             by_provider[p]["count"] += 1
             by_provider[p]["total_freed"] += item.get("size", 0)
-            provs_seen.add(p)
-
-        bf = op.get("before_free", 0) or 0
-        af = op.get("after_free", 0) or 0
-        actual = af - bf
-        predicted = op.get("bytes_freed", 0)
-        for p in provs_seen:
-            if p in by_provider:
-                by_provider[p]["total_predicted"] += predicted
-
-    provider_ranking = sorted(
-        by_provider.items(), key=lambda x: -x[1]["total_freed"]
-    )
-
+    provider_ranking = sorted(by_provider.items(), key=lambda x: -x[1]["total_freed"])
     return {
         "total_operations": len(ops),
         "total_freed": total_freed,
         "total_freed_human": format_size(total_freed),
-        "operations_by_provider": by_provider,
         "most_reclaimed_providers": [
             {"provider": p, "freed": d["total_freed"],
              "freed_human": format_size(d["total_freed"]),
              "count": d["count"]}
             for p, d in provider_ranking[:8]
         ],
-        "recent_ops": [
-            {"id": o["id"], "timestamp": o.get("timestamp", ""),
-             "freed": o.get("bytes_freed", 0),
-             "freed_human": format_size(o.get("bytes_freed", 0)),
-             "delta": (o.get("after_free", 0) or 0) - (o.get("before_free", 0) or 0) - o.get("bytes_freed", 0)}
-            for o in ops[:5]
-        ],
     }
-
-

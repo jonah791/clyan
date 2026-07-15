@@ -627,6 +627,21 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def cmd_trust(args: argparse.Namespace) -> None:
+    from .core.history import trust_add, trust_remove, trust_list
+    act = args.trust_action
+    if act == "add":
+        ok = trust_add(args.path, getattr(args, "label", ""), getattr(args, "reason", ""))
+        _out({"success": ok, "message": f"Trusted: {args.path}" if ok else "Failed"})
+    elif act == "remove":
+        ok = trust_remove(args.path)
+        _out({"success": ok, "message": f"Removed trust: {args.path}" if ok else "Not found"})
+    elif act == "list":
+        _out({"trusted_paths": trust_list()})
+    else:
+        _out({"error": "use: clyan trust add/remove/list"})
+
+
 def cmd_scan_files(args: argparse.Namespace) -> None:
     from .scan.large_files import LargeFileScanner
     reset_dir_total_cache()
@@ -733,6 +748,8 @@ def main() -> None:
         cmd_mcp(args)
     elif args.command == "schedule":
         cmd_schedule(args)
+    elif args.command == "trust":
+        cmd_trust(args)
     else:
         parser.print_help()
 
