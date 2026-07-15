@@ -328,6 +328,21 @@ async def handle_list_tools() -> list[Tool]:
                 "required": ["provider"],
             },
         ),
+        Tool(
+            name="clean_plan",
+            description="Analyze items and return an optimized execution plan sorted by recovery_cost. Use when you have many items and want to minimize risk.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "items": {"type": "object"},
+                        "description": "List of items from a scan. Each should have path, size, provider.",
+                    },
+                },
+                "required": ["items"],
+            },
+        ),
     ]
 
 
@@ -582,7 +597,8 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent]:
         # ── get_provider_feedback ──
         elif name == "get_provider_feedback":
             provider = arguments["provider"]
-            data = get_provider_feedback(provider, limit=10)
+            from .core.history import get_provider_feedback as _gpf
+            data = _gpf(provider, limit=10)
             return _ok({
                 "provider": provider,
                 "history": data,
@@ -592,6 +608,41 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent]:
                     "total_predicted": sum(f["predicted_size"] for f in data),
                     "total_actual": sum(f["actual_freed"] for f in data),
                 } if data else None,
+            })
+
+        # ── clean_plan ──
+        elif name == "clean_plan":
+            items = arguments.get("items", [])
+            if not items:
+                return _ok({"error": "No items provided", "plan": []})
+            from .utils.confidence import REBUILD_HIGH, REBUILD_LOW, REBUILD_NONE
+            _enrich_items(items)
+            cost_order = {REBUILD_NONE: 0, "low": 1, REBUILD_LOW: 1, "medium": 2, REBUILD_HIGH: 3, "high": 3, "unknown": 4}
+            sorted_items = sorted(
+                items,
+                key=lambda i: (cost_order.get(i.get("recovery_cost", "unknown"), 99), -i.get("size", 0))
+            )
+            by_cost: dict[str, list[dict]] = {}
+            for i in sorted_items:
+                c = i.get("recovery_cost", "unknown")
+                by_cost.setdefault(c, []).append(i)
+            phases = []
+            for cost in [REBUILD_NONE, "low", "medium", "high", "unknown"]:
+                if cost in by_cost:
+                    phase_items = by_cost[cost]
+                    phases.append({
+                        "cost": cost,
+                        "count": len(phase_items),
+                        "total_size": sum(p.get("size", 0) for p in phase_items),
+                        "total_size_human": format_size(sum(p.get("size", 0) for p in phase_items)),
+                    })
+            return _ok({
+                "total_items": len(items),
+                "total_size": sum(i.get("size", 0) for i in items),
+                "total_size_human": format_size(sum(i.get("size", 0) for i in items)),
+                "phases": phases,
+                "recommendation": "Execute phases in order: start with 'none' cost items, verify, then proceed to higher cost items.",
+                "plan": sorted_items,
             })
 
         else:
