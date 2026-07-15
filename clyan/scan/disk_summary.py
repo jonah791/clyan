@@ -101,7 +101,7 @@ def _classify_usage(name: str) -> str:
     return "其他"
 
 
-def scan_disk(path: str = "C:\\", depth: int = 2, top_n: int = 15) -> ScanResult:
+def _scan_disk(path: str = "C:\\", depth: int = 2, top_n: int = 15) -> ScanResult:
     start = time.time()
     result = ScanResult()
 
