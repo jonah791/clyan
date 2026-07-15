@@ -266,6 +266,30 @@ _IMPACT_DB: dict[str, tuple[list[str], list[str], str]] = {
         "none",
     ),
 
+    # === npm deep ===
+    "npm_deep:npx_cache": (
+        ["npx downloaded binaries deleted — safe, one-time use only"],
+        ["npx", "node"],
+        "none",
+    ),
+    "npm_deep:cacache": (
+        ["npm package cache cleared — re-download required on npm install"],
+        ["npm", "node"],
+        "high",
+    ),
+    "npm_deep:npm_global": (
+        ["npm global packages deleted — npm install -g <pkg> required"],
+        ["npm", "node"],
+        "high",
+    ),
+
+    # === pip deep ===
+    "pip_deep:pip_cache": (
+        ["pip wheel cache cleared — re-download required on pip install"],
+        ["pip", "python"],
+        "high",
+    ),
+
     # === ML / AI ===
     "ml_cache": (
         ["ML model cache cleared — large re-download required (GBs)"],
@@ -403,8 +427,8 @@ def ecosystem_for(provider: str, path: str = "") -> str:
     # Provider-based mapping
     _ECOSYSTEM_MAP = {
         "node": {"npm_cache", "pnpm_cache", "bun_cache", "node_modules",
-                 "node_waste", "build_artifacts"},
-        "python": {"pip_cache", "python", "venv", "uv_cache"},
+                 "node_waste", "build_artifacts", "npm_deep"},
+        "python": {"pip_cache", "python", "venv", "uv_cache", "pip_deep"},
         "rust": {"cargo_registry", "target", "rust"},
         "go": {"go_cache"},
         "java": {"gradle_cache", "maven_cache", "gradle"},
