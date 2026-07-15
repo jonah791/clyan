@@ -624,7 +624,35 @@ def build_parser() -> argparse.ArgumentParser:
     sp_sch.add_argument("--time", default="03:00",
                         help="time to run, e.g. 03:00 (default: 3 AM)")
 
+    # ── Import subcommand ──
+    imp_p = sub.add_parser("import", help="import cleaner definitions (winapp2)")
+    imp_sub = imp_p.add_subparsers(dest="import_type")
+    imp_w2 = imp_sub.add_parser("winapp2", help="import Winapp2.ini cleaner definitions")
+    imp_w2.add_argument("path", help="path to winapp2.ini file")
+
     return p
+
+
+def cmd_import(args: argparse.Namespace) -> None:
+    if args.import_type == "winapp2":
+        path = args.path
+        if not os.path.isfile(path):
+            _out({"error": f"File not found: {path}"})
+            return
+        try:
+            content = open(path, "r", encoding="utf-8").read()
+        except Exception:
+            try:
+                content = open(path, "r", encoding="utf-16-le").read()
+            except Exception as e:
+                _out({"error": f"Cannot read file: {e}"})
+                return
+        from .importers.winapp2 import import_winapp2, get_winapp2_stats
+        result = import_winapp2(content)
+        stats = get_winapp2_stats()
+        _out({**result, "stats": stats})
+    else:
+        _out({"error": f"Unknown import type: {args.import_type}. Supported: winapp2"})
 
 
 def cmd_trust(args: argparse.Namespace) -> None:
@@ -750,6 +778,8 @@ def main() -> None:
         cmd_schedule(args)
     elif args.command == "trust":
         cmd_trust(args)
+    elif args.command == "import":
+        cmd_import(args)
     else:
         parser.print_help()
 

@@ -83,4 +83,4 @@ def get_registered_providers() -> list[str]:
     return list(_registry.keys())
 
 
-from . import node, python_prov, rust_prov, ide, build, misc, windows_system, app_caches, win_deep, maven, windows_extra
+from . import node, python_prov, rust_prov, ide, build, misc, windows_system, app_caches, win_deep, maven, windows_extra, winapp2_prov
