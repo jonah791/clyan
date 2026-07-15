@@ -1,20 +1,17 @@
+"""Base scanner types and shared utilities."""
 from abc import ABC, abstractmethod
 from typing import Any
 
 from .size import format_size
 from .staleness import get_age_days, cache_type_installed
 from .confidence import compute_and_attach
+from .impact import attach_impact
 
 
 def safe_walk(root: str, max_depth: int = 20, skip_permission_errors: bool = True):
-    """Generator wrapper around os.walk that tolerates permission errors.
-
-    Skips directories that raise PermissionError and yields results from
-    accessible subtrees.  Usage identical to os.walk.
-    """
+    """Generator wrapper around os.walk that tolerates permission errors."""
     import os
     for dirpath, dirs, files in os.walk(root, topdown=True, followlinks=False):
-        # Check depth
         rel = os.path.relpath(dirpath, root)
         if rel != ".":
             depth = rel.count(os.sep) + 1
@@ -25,12 +22,13 @@ def safe_walk(root: str, max_depth: int = 20, skip_permission_errors: bool = Tru
 
 
 def _enrich(item: dict) -> None:
-    """Attach age_days and tool_installed signals to an item dict."""
+    """Attach age_days, tool_installed, and impact signals to an item dict."""
     if "age_days" not in item:
         age = get_age_days(item.get("path", ""))
         item["age_days"] = age if age is not None else -1
     if "tool_installed" not in item:
         item["tool_installed"] = cache_type_installed(item.get("provider", ""))
+    attach_impact(item)
 
 
 class ScanResult:

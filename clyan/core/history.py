@@ -129,3 +129,75 @@ def get_disk_trend(path: str, limit: int = 14) -> list[dict]:
     return list(reversed([dict(r) for r in rows]))
 
 
+def get_clean_impact_summary(limit: int = 10) -> dict:
+    """Analyze past clean operations and return feedback for AI.
+    
+    Returns: {
+        "total_operations": N,
+        "total_freed": N (bytes),
+        "total_freed_human": "X GB",
+        "operations_by_provider": {"npm_cache": {"count": N, "total_freed": N, "avg_delta": N}, ...},
+        "recent_ops": [...],
+        "most_reclaimed_providers": [...],
+        "providers_with_negative_delta": [...],  # predicted but didn't free
+    }
+    """
+    conn = _conn()
+    rows = conn.execute(
+        "SELECT * FROM clean_history ORDER BY id DESC LIMIT ?", (limit,)
+    ).fetchall()
+    conn.close()
+
+    ops = [dict(r) for r in rows]
+    if not ops:
+        return {"total_operations": 0, "message": "No clean history yet"}
+
+    total_freed = sum(o.get("bytes_freed", 0) for o in ops)
+    by_provider: dict[str, dict] = {}
+    for op in ops:
+        try:
+            items = json.loads(op.get("items_json", "[]"))
+        except Exception:
+            items = []
+        provs_seen = set()
+        for item in items:
+            p = item.get("provider", "unknown")
+            if p not in by_provider:
+                by_provider[p] = {"count": 0, "total_freed": 0, "total_predicted": 0}
+            by_provider[p]["count"] += 1
+            by_provider[p]["total_freed"] += item.get("size", 0)
+            provs_seen.add(p)
+
+        bf = op.get("before_free", 0) or 0
+        af = op.get("after_free", 0) or 0
+        actual = af - bf
+        predicted = op.get("bytes_freed", 0)
+        for p in provs_seen:
+            if p in by_provider:
+                by_provider[p]["total_predicted"] += predicted
+
+    provider_ranking = sorted(
+        by_provider.items(), key=lambda x: -x[1]["total_freed"]
+    )
+
+    return {
+        "total_operations": len(ops),
+        "total_freed": total_freed,
+        "total_freed_human": format_size(total_freed),
+        "operations_by_provider": by_provider,
+        "most_reclaimed_providers": [
+            {"provider": p, "freed": d["total_freed"],
+             "freed_human": format_size(d["total_freed"]),
+             "count": d["count"]}
+            for p, d in provider_ranking[:8]
+        ],
+        "recent_ops": [
+            {"id": o["id"], "timestamp": o.get("timestamp", ""),
+             "freed": o.get("bytes_freed", 0),
+             "freed_human": format_size(o.get("bytes_freed", 0)),
+             "delta": (o.get("after_free", 0) or 0) - (o.get("before_free", 0) or 0) - o.get("bytes_freed", 0)}
+            for o in ops[:5]
+        ],
+    }
+
+
