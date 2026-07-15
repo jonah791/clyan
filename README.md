@@ -1,182 +1,202 @@
-# Clyan — 给 AI Agent 用的磁盘清理工具
+# Clyan — 给 AI Agent 的磁盘本体感觉
 
-> **自用非商用开源项目** — 个人开发的 AI 驱动磁盘清理工具，仅供学习交流。
-> 作者不对使用本工具造成的任何数据丢失承担责任。使用前请备份重要数据。
+> **自用非商用开源项目** · AGPL · 一个 AI 知道它"有多满"的磁盘工具
 
-一个由 AI agent 驱动的命令行磁盘清理工具。你可以通过 CLI 或 MCP 协议与它交互，说一句话就能完成全盘扫描、垃圾识别、空间释放。
+Clyan 不是"磁盘清理工具"。它是 AI Agent 的**磁盘反射弧**——像膝跳反射一样，在 AI 下载大文件之前自动腾出空间，在磁盘将满时自动预警，整个过程**不需要 AI 思考"清理"这件事**。
 
-## 功能
+```bash
+# 第一次：用手摸
+clyan reclaim C:\           # 全量扫描 → 分阶段执行计划
+clyan reclaim C:\ --phase 1 # 执行零风险阶段
 
-- **53+ 缓存检测器**：300+ 内置规则 + 3700+ Winapp2 社区维护清理器全面覆盖
-- **npm 缓存深度分解**：`npm_deep` 拆解 `_npx/`（1.4GB 一次性二进制，安全可删）、`_cacache/`（6.2GB 按年份分组）、`npm_global/`（3.8GB 全局包列表）；`npm_prune` 集成 npm cache ls（3882 entries + 未使用天数信号）
-- **pip 缓存年龄分组**：`pip_deep` 按 6 个时间区间统计 600+ wheel 文件，附带 old_ratio 信号
-- **DISM 深度集成**：WinSxS 组件清理 / StartComponentCleanup / ResetBase / pnputil 旧驱动一一对应 exact 命令，AI 可按需调用
-- **Winapp2.ini 导入**：兼容 CCleaner/BleachBit 的 3700+ 社区维护清理器定义，`clyan import winapp2 winapp2.ini` 一键导入，自动分类到 browser_cache / app_cache / dev_garbage / windows_system 生态组（含路径回退智能分类）
-- **重复文件检测 + 清理**：三步检测（按大小分组 → **4KB 部分哈希** → 全量哈希），支持并行目录遍历 + inode 去重（跳过硬链接）+ match-and-stop 跳过构件目录，`--dedupe keep-newest/first/smallest` 策略
-- **大文件发现**：`scan files C:\ --min-size 100MB --top 20` 找到硬盘上最大的单个文件
-- **构建废物检测**：50+ 构件目录覆盖（node_modules / .next / .angular / .vite / .nx / .swc / .turbo / .serverless 等），外加文件级产物（.tsbuildinfo / 构建日志 / 堆快照），match-and-stop 避免递归遍历
-- **Windows 深度清理**：WinSxS 组件存储 + DISM 清理集成（StartComponentCleanup/ResetBase）、Windows.old 旧系统、Windows Installer 缓存（5.6 GB 按旧补丁/旧安装源/大文件三级分类）、DriverStore 旧驱动（pnputil 命令级建议）、Delivery Optimization 缓存、WER 错误报告、Store / Teams / OneDrive / Defender / Xbox 专项缓存
-- **三级安全体系**：Safe（安全可删）/ Caution（谨慎，可能需重建）/ Unsafe（不可删，含配置/凭据），配合保护路径系统和豁免规则
-- **磁盘概览 + 趋势**：`clyan scan disk C:\ --depth 2` — 总容量/已用/剩余 + 层次化目录树 + 分类占用 + `--trend` 历史变化
-- **垃圾置信度评分**：每个可清理项自动计算 0–100% 置信度（6 信号：安全级别 + 修改时间 + 工具是否卸载 + 目录名 + 孤儿标记 + **重建成本**），附中文原因说明
-- **影响预测（AI 决策支持）**：每个项目附带 `would_break`（删除后果）、`would_affect`（影响的应用）、`recovery_cost`（恢复成本 none/low/medium/high）、`ecosystem`（生态分组：node/python/rust/windows/browser/ide/ml/…）—— AI 拿到的不只有"能不能删"，还有"删了会怎样"
-- **生态分组**：每个 item 自动归属 11 个生态组（node / python / rust / go / java / dotnet / browser / ide / windows / ml / build），AI 可按组批量决策
-- **清理历史分析**：get_clean_impact_summary() 返回按 provider 统计的释放量、delta 偏差、最常清理的缓存类型
-- **应用影响预警**：删除前显示副作用——浏览器缓存→"清除登录"、依赖缓存→"需重新下载"、Temp→"无副作用"
-- **孤儿缓存检测**：自动检测包管理器（npm/pip/cargo/go/gradle/dotnet…）是否已卸载，被弃用的缓存自动提高置信度
-- **孤儿临时目录扫描**：自动识别 `%TEMP%` 内的 `pip-unpack-*`/`conda-*`/`msi-*` 等残留临时目录
-- **Temp 深度分解**：`scan system` 递归显示 Temp 内最大的子目录
-- **智能过滤**：`--auto-safe`、`--min-confidence`、`--explain`（显示置信度原因 + 影响预警）
-- **回收站 + 历史回溯**：默认走回收站，SQLite 记录每次操作，支持按 ID 撤销
-- **清理验证**：每次清理后自动测量实际释放空间（`actual_freed` / `delta`）
-- **一键深清**：`clean --deep` 完整周期——全量扫描 → 评分 → 过滤 → 执行 → 验证 → 报告
-- **定时清理**：`schedule --create` 注册 Windows 计划任务，每周自动运行
-- **MCP 服务器**：AI agent 可通过 Model Context Protocol 直接调用 16 个工具（无需 CLI subprocess）
-- **AI 全权决策**：执行层不做任何内置策略判断 — 不设 `is_protected` 硬拦截（改为 `protected_warned` 输出）、不设阈值（`_FAST_THRESHOLD`/`_NATIVE_DIR_THRESHOLD` 已删除），每个项目可选 `method`（`trash`/`direct`/`native`/`auto`），AI 自己决定删什么、怎么删
-- **并行加速**：Provider 级 + Scanner 级双级并行，LRU 目录尺寸缓存
-- **Windows 删除方法**：`rd /s /q`（深树） / `del /f /q`（大文件） / `shutil.rmtree`（散落目录） / `send2trash`（回收站），由 AI 逐项指定
-- **保护路径警告**：检测到保护路径不再强制拦截，通过 `protected_warned` 字段告知 AI，AI 自行判断
+# 第二次：条件反射
+clyan pulse                  # <1ms 健康检查（缓存预热后零 IO）
+clyan auto-clear             # 自动释放 cost=none 项（AI 无感）
+```
+
+## 一句话哲学
+
+**工具做"全"和"准"，AI 做"判断"和"决策"。**
+
+Clyan 不做三件事：
+- ❌ 不替 AI 判断该删什么（删了 `is_protected` 硬拦截）
+- ❌ 不按阈值决定删除方法（删了 `_FAST_THRESHOLD`）
+- ❌ 不给 AI "加工"过的数据（全量原始信号返回）
+
+## 功能矩阵
+
+### 🔍 扫描（53+ 内置 Provider + 3700+ Winapp2）
+
+| 层 | 覆盖范围 | provider 数 |
+|----|---------|------------|
+| 包管理器缓存 | npm / pip / cargo / go / gradle / maven / nuget / pnpm / bun / uv | 12 |
+| 构建产物 | node_modules / .next / .angular / .vite / .nx / target / build | 20+ 模式 |
+| IDE 缓存 | VS Code / JetBrains / Eclipse / IDEA 扩展+缓存 | 5 |
+| 浏览器 | Chrome / Edge / Firefox 完整缓存 + SQLite 深度清理 | 4 |
+| Windows 系统 | WinSxS / DISM / DriverStore / Installer / Update / Temp / WER / 缩略图 / 搜索索引 | 15 |
+| Windows 扩展 | Delivery Optimization / SoftwareDistribution / Store / Teams / OneDrive / Defender / Xbox / 旧备份 | 8 |
+| 应用缓存 | Discord / Slack / Teams / Zoom / WeChat / Spotify / WhatsApp / Obsidian / Flutter / Android | 12 |
+| ML/AI | HuggingFace Hub / Ollama / PyTorch / TensorFlow / LM Studio | 5 |
+| Winapp2 | 社区维护 3700+ 条清理器定义（自动按路径分类） | 动态 |
+| **总计** | | **53+ 固定 + 动态** |
+
+### ⚡ Reflex（磁盘反射弧）
+
+| 级别 | 工具 | 延迟 | AI 意识 | 行为 |
+|------|------|------|---------|------|
+| **tick** | `check_disk_pulse` | **<1ms** | 写文件前自动调用 | 无感 |
+| **twitch** | `auto_clear_safe` | **~1s（缓存命中）** | 无感自动执行 | 只清 cost=none |
+| **spasm** | `reclaim --phase` | **~30s（全量）** | 被告知，不做决策 | 分阶段执行 |
+
+### 🧠 行为学习
+
+Clyan 根据 AI 的历史决策动态调整置信度：
+
+```
+AI 连续跳过 npm_cache 3 次 → 置信度 -0.10（AI 认为不需要）
+AI 连续清理 pip_cache 3 次 → 置信度 +0.05（AI 认为安全）
+历史准确率 < 70%            → 置信度 -0.05（校准）
+从未见过的新类型            → 置信度 -0.03（保守）
+```
+
+### 📋 Reclaim（统一回收计划）
+
+一次扫描，按风险分阶段输出：
+
+```
+📋  Reclaim Plan for C:\Users\tr
+   Total: 89.21 GB (364 items)
+   🟢  Phase none:    28.97 GB (39 items)  — Temp/npx/缩略图
+   🟡  Phase low:      1.12 GB (13 items)  — 浏览器缓存
+   🟠  Phase medium:   4.52 GB (126 items) — IDE/构建产物
+   🔴  Phase high:    25.95 GB (35 items)  — npm/pip/依赖缓存
+   ⚫  Phase unknown: 28.65 GB (151 items) — Winapp2 未分类
+```
 
 ## 性能
 
-| 扫描范围 | 规模 | v0.1.0 | **v0.13.0** | 提速 |
-|---------|------|--------|-----------|------|
-| 用户目录 `C:\Users\xxx` | ~40 GB | ~23s | **~0.2s** | **~99%** |
-| 全盘 C: 快速体检 | ~335 GB | — | **~8s** | — |
-| 全盘 C: 目录树 (depth=2) | ~335 GB | — | **~7s** | — |
-| 重复检测 40K 文件 | 4KB hash + 并行遍历 + 持久缓存 | — | **~2s** | — |
-| 扫描 dev-garbage (208项) | 50+ 构件目录 + 影响预测 | — | **~8s** | — |
+| 操作 | 首次 | 缓存后 |
+|------|------|--------|
+| `pulse`（健康检查） | **178ms**（自动预热） | **<1ms** |
+| `scan disk`（全盘概览） | **~7s** | — |
+| `scan dev-garbage`（开发者垃圾） | **~8s** | — |
+| `reclaim`（全量回收计划） | **~30s** | **~8s**（缓存） |
+| `auto-clear`（安全自动清理） | **~15s**（全量扫描） | **~1s**（缓存命中） |
+| `duplicates`（重复文件检测） | **~2s**（4KB hash + 并行） | — |
 
 ## 快速开始
 
 ```bash
 pip install -e .
-# 全盘概览：容量 + 目录树 + 可回收垃圾
-clyan scan disk C:\ --depth 2
-# 全盘快速体检（29 秒完成全盘）
-clyan scan quick C:\
-# 看大文件
-clyan scan files C:\ --min-size 100 --top 10
-# 一键深清（完整周期：扫描→评分→过滤→执行→验证→报告）
-clyan clean --deep --yes
-# 去重：保留最新版本
-clyan clean --dedupe keep-newest --path C:\Users\tr
-# 看置信度 + 影响预警
-clyan scan dev-garbage C:\ --explain
+
+# 磁盘反射弧——AI 的无意识层
+clyan pulse                          # <1ms 健康检查
+clyan auto-clear                     # 自动释放安全空间
+
+# 统一回收计划
+clyan reclaim C:\                    # 全量扫描 → 分阶段计划
+clyan reclaim C:\ --phase none       # 只执行零风险阶段
+
+# 传统扫描
+clyan scan disk C:\ --depth 2       # 磁盘概览
+clyan scan dev-garbage C:\ --explain # 开发者垃圾 + 置信度
+clyan scan quick C:\                 # 全量快速体检
+clyan scan files C:\ --min-size 100  # 大文件发现
+
+# 一键深清
+clyan clean --deep --strategy safe --yes
+
+# MCP 服务器（给 AI Agent 用）
+clyan mcp
 ```
 
-## 命令
+## 命令参考
 
 ### 扫描
 
 | 命令 | 说明 |
 |------|------|
 | `scan space <path>` | 目录空间分析（--depth, --top） |
-| `scan dev-garbage <path>` | 开发者缓存/垃圾（--explain 看置信度+预警） |
-| `scan browsers` | 浏览器缓存 |
-| `scan system` | Windows 临时文件 + 回收站 + Temp 深度分解 |
-| `scan duplicates <path>` | 重复文件检测（--json 输出可管道到 clean） |
-| `scan packages` | 安装的环境包管理器 |
-| `scan disk [drive]` | 磁盘概览：总容量/已用/剩余 + 目录树 + 分类 + 可回收垃圾（--depth, --trend） |
-| `scan files <path>` | **大文件发现**：找到最大的单个文件（--min-size, --top, --json） |
-| `scan node-waste <path>` | **node_modules 内部瘦身**：非必要文件扫描（README/license/test/doc/冗余扩展名） |
-| `scan quick <path>` | 一键全量扫描（并行执行全部分类，含磁盘信息） |
-| `import winapp2 <file>` | **导入 Winapp2.ini**：兼容 CCleaner/BleachBit 的 3700+ 社区清理器 |
+| `scan dev-garbage <path>` | 开发者缓存/垃圾 + Winapp2 + 置信度 |
+| `scan browsers` | 浏览器缓存（Chrome/Edge/Firefox） |
+| `scan system` | Windows 临时文件 + Temp 深度分解 |
+| `scan duplicates <path>` | 重复文件（4KB hash + 并行 + inode 去重） |
+| `scan packages` | 包管理器环境检测 |
+| `scan disk [drive]` | 磁盘概览：容量/已用/剩余/目录树/可回收 |
+| `scan files <path>` | 大文件发现（--min-size, --top） |
+| `scan node-waste <path>` | node_modules 内部瘦身 |
+| `scan quick <path>` | 一键全量扫描 |
+
+### 反射
+
+| 命令 | 说明 |
+|------|------|
+| `pulse [path]` | **⚡ 磁盘健康检查**（<1ms，缓存的） |
+| `auto-clear [path]` | **⚡ 自动释放 cost=none 空间** |
+
+### 回收
+
+| 命令 | 说明 |
+|------|------|
+| `reclaim <path>` | **全量扫描 → 分阶段执行计划** |
+| `reclaim <path> --phase none` | 执行零风险阶段 |
+| `reclaim <path> --dry-run` | 预览不执行 |
 
 ### 清理
 
-| 选项/模式 | 说明 |
-|----------|------|
-| `--items <file>` | 从 JSON 文件或字符串读取 |
-| `--stdin` | 从 stdin 读取 JSON |
-| `--dry-run` | 预览模式（不实际删除） |
-| `--permanent` | 永久删除（不进回收站） |
-| `--fast` | 大文件直接删（默认 ≥100MB 进回收站） |
-| `--safety {safe,caution,unsafe}` | 最小安全级别过滤 |
-| `--explain` | 显示置信度分数 + 原因 + 影响预警 |
-| `--min-confidence <0-100>` | 只处理置信度≥阈值的项目 |
-| `--auto-safe` | 只删置信度≥90% 且 safety=safe 的项目 |
-| `--deep` | **一键深清**：全量扫描→评分→过滤→执行→验证→报告 |
-| `--dedupe {keep-newest,keep-first,keep-smallest}` | **去重清理**：扫描重复文件，按策略保留一份 |
-| `--yes` | 跳过确认提示（配合 --deep / --dedupe） |
+| 选项 | 说明 |
+|------|------|
+| `--dry-run` | 预览（不删除） |
+| `--deep --strategy safe` | 一键深清：扫描→评分→过滤→执行→验证 |
+| `--dedupe keep-newest` | 去重（保留最新） |
+| `--auto-safe` | 只删置信度≥90% 且 safety=safe |
+| `--explain` | 显示置信度原因 + 影响预警 |
 
 ### 其他
 
 | 命令 | 说明 |
 |------|------|
-| `history` | 查看清理历史 |
-| `undo <id>` | 撤销某次清理 |
-| `trust add/remove/list` | 管理受信任路径（受信任路径跳过保护警告） |
-| `import winapp2 <file>` | 导入 Winapp2.ini 社区清理器定义 |
-| `mcp` | 启动 MCP 服务器 |
-| `schedule --create [--time]` | 创建每周定时清理任务 |
-| `schedule --remove` | 删除定时清理任务 |
+| `history` | 清理历史 |
+| `undo <id>` | 撤销清理 |
+| `trust add/remove/list` | 受信任路径（跳过保护警告） |
+| `import winapp2 <file>` | 导入 Winapp2.ini |
+| `mcp` | 启动 MCP 服务器（23 工具） |
+| `schedule --create` | 每周定时清理 |
 
-## 磁盘概览示例
-
-```
-$ clyan scan disk C:\ --depth 2
-C:\  407 GB  (68.7% 已用)  已用 280 GB  /  剩余 127 GB
-  Users                     181 GB   44%
-    tr                      181 GB
-  Program Files              37 GB    9%
-    NVIDIA Corporation        15 GB
-    Microsoft Office           5 GB
-  Windows                    33 GB    8%
-    WinSxS                   11 GB
-    System32                 11 GB
-  Program Files (x86)        21 GB    5%
-  ProgramData                15 GB    4%
-  其他                        4 GB    1%
-```
-
-## 置信度评分
-
-v0.4.0 引入的垃圾置信度引擎自动为每个可清理项打分，帮助你决定哪些可以放心删除。
-
-### 评分公式
-
-| 信号 | 权重 | 最高分 | 说明 |
-|------|------|--------|------|
-| 安全级别 | 30% | 30 | SAFE=30, CAUTION=15, UNSAFE=0 |
-| 文件陈旧度 | 25% | 25 | >90天=25, >30天=17, >7天=8, 近期=0 |
-| 工具已卸载 | 15% | 15 | 对应包管理器不在 PATH 中=15 |
-| 已知缓存目录名 | 10% | 10 | npm-cache / Temp / __pycache__ / pip-unpack-* =10 |
-| 孤儿标记 | 10% | 10 | Temp 深度扫描发现的孤儿临时目录额外加成 |
-| **重建成本** | **10%** | **20** | **none=+20, low=+5, high=-20**（依赖缓存自动减分） |
-
-### 影响预警
-
-| 类型 | 预警 |
-|------|------|
-| 浏览器缓存 | ⚠ 清除后需要重新登录网站 |
-| npm/pip/cargo 缓存 | ⚠ 删除后需要重新下载所有包 |
-| Discord/Slack/Teams | ⚠ 可能清除登录状态 |
-| 微信缓存 | ⚠ 包含聊天图片和文件 |
-| IDE 缓存 | ⚠ 可能清除扩展缓存和工作区状态 |
-| 临时文件 (Temp) | ✅ 无副作用，临时文件可安全删除 |
-| 错误报告 (WER) | ✅ 无副作用，可安全删除 |
-
-### 使用场景
+## MCP 服务器（23 工具）
 
 ```bash
-# 看置信度分布 + 每项原因 + 影响预警
-clyan clean --items items.json --dry-run --explain
-
-# 只删 100% 确定垃圾
-clyan clean --items items.json --auto-safe
-
-# 自定义阈值：只删置信度≥80%
-clyan clean --items items.json --min-confidence 80 --fast
-
-# 一键深清：只删高置信度项目
-clyan clean --deep --strategy safe --yes
-
-# 去重：保留最新版本
-clyan clean --dedupe keep-newest --path C:\Users\tr --dry-run
+clyan mcp
 ```
 
-### 输出示例
+| 工具 | 功能 |
+|------|------|
+| `check_disk_pulse` | ⚡ **反射 tick**：<1ms 健康检查 |
+| `auto_clear_safe` | ⚡ **反射 twitch**：零决策安全清理 |
+| `reclaim` | 📋 **统一回收**：全量→分阶段→执行 |
+| `scan_quick` | 全量扫描（53 provider） |
+| `scan_dev_garbage` | 开发者垃圾 + Winapp2 |
+| `scan_browsers` | 浏览器缓存 |
+| `scan_system` | Windows 系统临时文件 |
+| `scan_duplicates` | 重复文件检测 |
+| `scan_packages` | 包管理器检测 |
+| `scan_disk` | 磁盘概览 |
+| `get_confidence_summary` | 置信度评分 + 影响预警 |
+| `clean_propose` | 阶段 1：提议清理 |
+| `clean_confirm` | 阶段 2：确认执行 |
+| `clean_auto` | 一键自主清理 |
+| `clean_deep` | 完整清理周期 |
+| `clean_preview` | 预览检查 |
+| `clean_execute` | ⚠ 执行删除 |
+| `clean_plan` | 按 recovery_cost 排序的清理计划 |
+| `system_health` | 系统健康检查 |
+| `get_provider_feedback` | provider 历史准确率 |
+| `history` | 清理历史 |
+| `undo` | 撤销清理 |
+
+## AI 决策信号
+
+每个扫描项返回的完整信号：
 
 ```json
 {
@@ -185,7 +205,7 @@ clyan clean --dedupe keep-newest --path C:\Users\tr --dry-run
   "size_human": "3.38 GB",
   "provider": "python",
   "confidence": 0.50,
-  "reason": "安全级别 SAFE；>90天未修改；对应工具仍在系统中；已知安全缓存目录名；重建成本高",
+  "reason": "安全级别 SAFE；>90天未修改；工具仍在；已知缓存目录；重建成本高",
   "would_break": ["pip install would re-download all packages from PyPI"],
   "would_affect": ["pip", "python", "virtualenv"],
   "recovery_cost": "high",
@@ -195,151 +215,49 @@ clyan clean --dedupe keep-newest --path C:\Users\tr --dry-run
 }
 ```
 
-- **置信度 0.8–1.0**：🟢 放心删 — 安全 + 陈旧 + 孤立
-- **置信度 0.5–0.8**：🟡 很可能可删 — 安全但工具还在或近期用过
-- **置信度 < 0.5**：🔴 谨慎 — CAUTION/UNSAFE 或刚生成
-
-### AI 决策信号一览
-
-每个 item 返回的完整信号：
-
 | 字段 | 用途 | 示例 |
 |------|------|------|
 | `confidence` | 置信度 0.0–1.0 | 0.50 |
 | `reason` | 中文评分原因 | "安全级别 SAFE；>90天未修改…" |
-| `would_break` | 删除后果描述 | ["pip install would re-download…"] |
-| `would_affect` | 受影响的工具 | ["pip", "python", "virtualenv"] |
+| `would_break` | 删除后果 | ["pip install would re-download…"] |
+| `would_affect` | 影响的应用 | ["pip", "python", "virtualenv"] |
 | `recovery_cost` | 恢复成本 | "high" / "medium" / "low" / "none" |
-| `ecosystem` | 生态分组 | "python" / "node" / "windows" / "ml" |
-| `age_days` | 最近修改距今 | 120 |
+| `ecosystem` | 生态分组 | "python" / "node" / "windows" |
+| `age_days` | 未使用天数 | 120 |
 | `tool_installed` | 工具是否仍在 | true |
-
-## MCP 服务器
-
-启动 MCP 服务器后，AI agent 可以通过 stdio 传输协议直接调用所有功能：
-
-```bash
-clyan mcp
-```
-
-暴露的 MCP 工具（19 个）：
-
-| 工具 | 功能 |
-|------|------|
-| `scan_quick` | 全量扫描（53 provider 并行） |
-| `scan_dev_garbage` | 开发者缓存/垃圾 + Winapp2 社区清理器 + 附加信号 |
-| `scan_browsers` | 浏览器缓存 |
-| `scan_system` | Windows 临时文件 + Temp 分解 + 孤儿目录 |
-| `scan_duplicates` | 重复文件检测 |
-| `scan_packages` | 包管理器环境检测 |
-| `scan_disk` | 磁盘概览：容量 + 目录树 + 可回收垃圾 + `--trend` |
-| `get_confidence_summary` | 给任意 items 列表附加置信度评分 + 影响预警 |
-| `clean_propose` | 阶段 1：提议清理（返回 action_id + 影响分析 + 置信度分布） |
-| `clean_confirm` | 阶段 2：按 action_id 执行（返回 actual_freed + delta + protected_warned） |
-| `clean_auto` | 一键自主清理：scan → 评分 → 过滤 → 执行 |
-| `clean_deep` | 🆕 完整清理周期：全量扫描→评分→过滤→执行→验证 |
-| `clean_preview` | 预览检查（保护路径警告、已存在检查） |
-| `clean_execute` | ⚠ 执行删除（AI 指定每项 method，返回 actual_freed + protected_warned） |
-| `history` | 清理历史 |
-| `undo` | 撤销清理 |
-| `system_health` | 🆕 系统健康检查：磁盘用量 + 可回收 + 7天趋势 + provider 准确率 |
-| `get_provider_feedback` | 🆕 查询某 provider 的清理历史准确率 |
-| `clean_plan` | 🆕 分析 items 返回按 recovery_cost 排序的执行计划 |
-
-> `clean_propose` + `clean_confirm` 两阶段协议让 AI agent 可以先展示影响再确认执行，避免误删。
-> `clean_deep` 适合受信 agent 一键操作：`clean_deep(path="C:\", strategy="safe")`。
-
-## 安全体系
-
-采用 **三层危险等级** + **保护路径 + 豁免规则** 的组合策略：
-
-| 等级 | 含义 | 示例 |
-|------|------|------|
-| 🟢 safe | 可安全删除，自动重建 | `node_modules/`, `.cache/`, `Temp/`, NGEN 镜像 |
-| 🟡 caution | 注意 — 可能需重装或重建 | `.venv/`, VS Code 扩展, `.dart_tool` |
-| 🔴 unsafe | 不可删 — 含配置/凭据/数据 | `.ssh/`, `.git/`, `Desktop/`, `全局 npm` |
-
-保护路径（31条）：`C:\Windows`、`C:\Program Files`、`%APPDATA%\npm`、`Desktop`、`Documents`、`.ssh`、`.git`……
-
-豁免规则（34条）：`node_modules/`（排除全局 npm）、`Temp/`、`.cache/`、`assembly/`、`dist/`（排除 npm 内）……
-
-## 安装
-
-```bash
-pip install -e .
-# 或使用 MCP 模式（启动 AI agent 工具服务器）
-clyan mcp
-```
 
 ## 版本历程
 
 | 版本 | 亮点 |
 |------|------|
-| **v0.19.0** | 四方向扩展：Windows Installer 缓存（5.6 GB 分类检测）、DISM 深度集成（命令级）、npm _cacache 主动裁剪（3882 entries）、Winapp2 路径回退分类 ~1200 条；provider 50→53 |
-| **v0.18.0** | npm/pip 缓存深度裁剪：npm_deep 三组件分解（_npx/_cacache/npm_global）、pip_deep 按年龄分组（6 区间） |
-| **v0.17.0** | Winapp2.ini 导入引擎（3377 社区清理器、45 provider、86 GB 新增可发现空间）、INI 解析器 + 变量展开 + 注册表检测 + 动态 provider |
-| **v0.16.0** | 历史准确率 `historical_accuracy` + `clean_plan` MCP 工具（按 recovery_cost 排序执行计划） |
-| **v0.15.0** | 信任系统接入 `is_protected` + `system_health`/`get_provider_feedback` MCP（18→19 工具） |
-| **v0.14.0** | Agent 反馈闭环（clean_feedback 表 + 清理准确率追踪）+ `clyan trust` 命令 |
-| **v0.13.0** | AI 决策支持层：影响预测（`would_break`/`would_affect`/`recovery_cost`）、生态分组（11 组）、清理历史分析、61+ provider 映射 |
-| **v0.10.0** | 执行层精简（AI 全权决策）、8 个新 Windows provider（Delivery Opt / SoftwareDistribution / Store / Teams / OneDrive / Defender / Xbox / 旧备份）、删硬编码阈值和 `is_protected` 拦截 |
-| **v0.9.0** | 大文件发现 `scan files`、重复文件清理 `--dedupe`、应用影响预警 `warning` 字段、confidence 下限修正 |
-| **v0.8.0** | 完整清理周期：验证+报告（actual_freed/delta）、磁盘趋势 --trend、clean --deep、schedule 定时清理、MCP clean_deep（16 tools） |
-| **v0.7.0** | 置信度引擎重构（6 信号 + 重建成本）、广度扩展（Maven/WER/Search index/JetBrains Toolbox）、Temp 递归深度、preview realpath + execute winerror + UNC 保护 |
-| **v0.6.0** | MCP 工具集大扩展（15 个）、scan_disk/clean_auto/get_confidence_summary、两阶段清理协议 |
-| **v0.5.0** | 磁盘概览 scan disk（层次目录树 + --depth）、Temp 深度扫描、孤儿临时目录置信度加成 |
-| **v0.4.0** | 垃圾置信度评分引擎 + 孤儿缓存检测 + --explain/--min-confidence/--auto-safe |
-| **v0.3.0** | 清理性能优化：原生 rd/s/q（1.3x）、并行 rmtree（3.5x）、批量回收站、is_protected LRU 缓存 |
-| **v0.2.0** | 扫描性能大提速（~90%）：Provider 并行化、目录尺寸缓存、WinSxS 免遍历、单次文件系统遍历 |
-| **v0.1.0** | 初始版本：26+ 缓存检测器、重复文件检测、Windows 深度清理、MCP 服务器 |
-
-## 设计哲学
-
-Clyan 的核心原则：**工具做"全"和"准"，AI 做"判断"和"决策"**
-
-```
-扫描层 → 全面发现 + 全量信号（不过滤、不设阈值）
-执行层 → 安全执行 + 报告副作用（不硬拦截、不替 AI 选策略）
-AI     → 分析信号 + 做判断 + 选删除方法（trash/direct/native）
-```
-
-Clyan 不做的事：
-- 不替 AI 判断什么该删什么不该删（删了 `protected_warned` 硬拦截）
-- 不按阈值决定用什么删除方法（删了 `_FAST_THRESHOLD`）
-- 不给 AI "加工"过的数据（全量原始信号返回）
-
-对 AI agent 来说，Clyan 是**磁盘的眼和手**：
-- **眼**：53+ 内置检测器 + 3700+ Winapp2 社区清理器，每项附 size / age / rebuild_cost / ecosystem / would_break / historical_accuracy 等完整信号
-- **手**：接收 AI 指定的 `path` + `method`，安全执行，返回 `actual_freed` / `protected_warned` / `errors` + 历史准确率反馈
-
-## 许可证
-
-自用非商用开源项目。仅供个人学习、研究使用。禁止商业用途。
-
-## 免责声明
-
-本工具会删除文件。虽然设计了多层安全保护（保护路径、豁免规则、置信度评分、回收站），但**不能保证 100% 避免误删**。使用前请：
-- 先用 `--dry-run` 预览
-- 默认走回收站（`--permanent` 谨慎使用）
-- 重要数据自行备份
-
-作者不对因使用本工具造成的任何直接或间接损失承担责任。
+| **v1.0.0-rc** | Reflex 反射弧 + reclaim 统一回收 + 行为学习 + CLI 美化 + MCP Resource |
+| **v0.19.0** | Windows Installer 缓存 / DISM 集成 / npm 裁剪 / Winapp2 路径分类 |
+| **v0.18.0** | npm/pip 缓存深度分解（_npx / _cacache / 年龄分组） |
+| **v0.17.0** | Winapp2 导入引擎（3700+ 社区清理器） |
+| **v0.16.0** | 历史准确率 + clean_plan MCP 工具 |
+| **v0.15.0** | 信任系统 + system_health MCP |
+| **v0.14.0** | Agent 反馈闭环 + clyan trust |
+| **v0.13.0** | 影响预测（would_break / recovery_cost）+ 生态分组 |
+| **v0.10.0** | 执行层精简：AI 全权决策 |
+| **v0.7.0** | 置信度引擎（6 信号 + 重建成本） |
+| **v0.4.0** | 垃圾置信度评分 |
+| **v0.2.0** | Provider 并行化（~90% 提速） |
+| **v0.1.0** | 初始版本：26+ 检测器 + MCP |
 
 ## 参考项目
 
-Clyan 的设计和实现参考了以下开源项目：
-
 | 项目 | 参考内容 |
 |------|---------|
-| [Winapp2](https://github.com/MoscaDotTo/Winapp2) | 3700+ 社区维护的 Windows 清理器定义（CCleaner 兼容格式） |
-| [TurboClean](https://github.com/ChenAI-TGF/TurboClean) | 多进程磁盘扫描框架 |
-| [Czkawka](https://github.com/qarmin/czkawka) | 重复文件检测策略、临时文件扫描 |
-| [ddh](https://github.com/darakian/ddh) | 轻量重复文件查找 + JSON 输出格式 |
-| [bleachbit](https://github.com/bleachbit/bleachbit) | 安全边界模型、保护路径 XML、系统清理 |
-| [cache-commander](https://github.com/juliensimon/cache-commander) | Provider 模块化架构、MCP 集成、SafetyLevel 设计 |
-| [null-e](https://github.com/us/null-e) | 50+ 缓存类型覆盖、Windows 支持 |
-| [dev-cleaner](https://github.com/jemishavasoya/dev-cleaner) | Windows 全栈开发者缓存路径 |
+| [Winapp2](https://github.com/MoscaDotTo/Winapp2) | 3700+ 社区清理器定义 |
+| [Czkawka](https://github.com/qarmin/czkawka) | 重复文件检测策略 |
+| [ddh](https://github.com/darakian/ddh) | 轻量重复文件查找 |
+| [bleachbit](https://github.com/bleachbit/bleachbit) | 安全边界模型 |
+| [cache-commander](https://github.com/juliensimon/cache-commander) | Provider 模块化架构 + MCP 集成 |
 | [dustoff](https://github.com/westpoint-io/dustoff) | JS/TS 构建产物清理 |
 | [modclean](https://github.com/ModClean/modclean) | node_modules 深度瘦身 |
-| [space](https://github.com/emilevr/space) | Rust 磁盘分析器 TUI/CLI 设计 |
-| [cull](https://github.com/legostin/cull) | 交互式 TUI 磁盘分析 |
+
+## 许可证
+
+自用非商用开源项目（AGPL）。仅供个人学习、研究使用。禁止商业用途。
+
+**免责声明：** 本工具会删除文件。虽然设计了多层安全保护，但不能保证 100% 避免误删。使用前请备份重要数据。作者不对因使用本工具造成的任何直接或间接损失承担责任。
