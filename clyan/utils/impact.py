@@ -68,9 +68,9 @@ _IMPACT_DB: dict[str, tuple[list[str], list[str], str]] = {
         ["docker"],
         "high",
     ),
-
+    
     # === Browser caches ===
-    "browser_cache": (
+    "browser": (
         ["Browser may clear login sessions and site preferences"],
         ["chrome", "edge", "firefox"],
         "low",
@@ -160,6 +160,11 @@ _IMPACT_DB: dict[str, tuple[list[str], list[str], str]] = {
     ),
 
     # === Windows system ===
+    "system": (
+        ["Temporary files deleted -- no side effects"],
+        [],
+        "none",
+    ),
     "system_temp": (
         ["Temporary files deleted — no side effects, auto-cleaned by Windows"],
         [],
@@ -322,7 +327,7 @@ def ecosystem_for(provider: str, path: str = "") -> str:
         "go": {"go_cache"},
         "java": {"gradle_cache", "maven_cache", "gradle"},
         "dotnet": {"nuget_cache"},
-        "browser": {"browser_cache", "browser_deep", "app_cache"},
+        "browser": {"browser_cache", "browser_deep", "app_cache", "browser"},
         "ide": {"vscode_cache", "vscode_extensions", "jetbrains_cache",
                  "jetbrains_tmp", "ide"},
         "windows": {"system_temp", "windows_update", "winsxs",
@@ -330,7 +335,7 @@ def ecosystem_for(provider: str, path: str = "") -> str:
                      "recycle_bin", "prefetch", "thumbnail_cache",
                      "old_windows", "defender_cache", "wer_reports",
                      "search_index", "dotnet_ngen", "windows_extra",
-                     "windows_system"},
+                     "windows_system", "system"},
         "ml": {"ml_cache", "docker_images"},
         "build": {"build_artifacts", "build_artifacts_file"},
     }
