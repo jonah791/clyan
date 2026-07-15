@@ -7,6 +7,7 @@
 
 ## 功能
 
+- **Winapp2.ini 导入**：兼容 CCleaner/BleachBit 的 3700+ 社区维护清理器定义，`clyan import winapp2 winapp2.ini` 一键导入，自动分类到 browser_cache / app_cache 生态组
 - **50+ 缓存检测器**：npm / pip / cargo / Go / Docker / IDE 缓存 / 浏览器缓存 / Windows 系统缓存 / Maven / WER / 开发垃圾 + Delivery Optimization / SoftwareDistribution / Store / Teams / OneDrive / Defender / Xbox 等 Windows 扩展
 - **重复文件检测 + 清理**：三步检测（按大小分组 → **4KB 部分哈希** → 全量哈希），支持并行目录遍历 + inode 去重（跳过硬链接）+ match-and-stop 跳过构件目录，`--dedupe keep-newest/first/smallest` 策略
 - **大文件发现**：`scan files C:\ --min-size 100MB --top 20` 找到硬盘上最大的单个文件
@@ -77,6 +78,7 @@ clyan scan dev-garbage C:\ --explain
 | `scan files <path>` | **大文件发现**：找到最大的单个文件（--min-size, --top, --json） |
 | `scan node-waste <path>` | **node_modules 内部瘦身**：非必要文件扫描（README/license/test/doc/冗余扩展名） |
 | `scan quick <path>` | 一键全量扫描（并行执行全部分类，含磁盘信息） |
+| `import winapp2 <file>` | **导入 Winapp2.ini**：兼容 CCleaner/BleachBit 的 3700+ 社区清理器 |
 
 ### 清理
 
@@ -101,6 +103,8 @@ clyan scan dev-garbage C:\ --explain
 |------|------|
 | `history` | 查看清理历史 |
 | `undo <id>` | 撤销某次清理 |
+| `trust add/remove/list` | 管理受信任路径（受信任路径跳过保护警告） |
+| `import winapp2 <file>` | 导入 Winapp2.ini 社区清理器定义 |
 | `mcp` | 启动 MCP 服务器 |
 | `schedule --create [--time]` | 创建每周定时清理任务 |
 | `schedule --remove` | 删除定时清理任务 |
@@ -215,12 +219,12 @@ clyan clean --dedupe keep-newest --path C:\Users\tr --dry-run
 clyan mcp
 ```
 
-暴露的 MCP 工具（16 个）：
+暴露的 MCP 工具（19 个）：
 
 | 工具 | 功能 |
 |------|------|
-| `scan_quick` | 全量扫描（并行所有分类） |
-| `scan_dev_garbage` | 开发者缓存/垃圾 + 附加信号（age / rebuild_cost / provider） |
+| `scan_quick` | 全量扫描（45 provider 并行） |
+| `scan_dev_garbage` | 开发者缓存/垃圾 + Winapp2 社区清理器 + 附加信号 |
 | `scan_browsers` | 浏览器缓存 |
 | `scan_system` | Windows 临时文件 + Temp 分解 + 孤儿目录 |
 | `scan_duplicates` | 重复文件检测 |
@@ -235,6 +239,9 @@ clyan mcp
 | `clean_execute` | ⚠ 执行删除（AI 指定每项 method，返回 actual_freed + protected_warned） |
 | `history` | 清理历史 |
 | `undo` | 撤销清理 |
+| `system_health` | 🆕 系统健康检查：磁盘用量 + 可回收 + 7天趋势 + provider 准确率 |
+| `get_provider_feedback` | 🆕 查询某 provider 的清理历史准确率 |
+| `clean_plan` | 🆕 分析 items 返回按 recovery_cost 排序的执行计划 |
 
 > `clean_propose` + `clean_confirm` 两阶段协议让 AI agent 可以先展示影响再确认执行，避免误删。
 > `clean_deep` 适合受信 agent 一键操作：`clean_deep(path="C:\", strategy="safe")`。
@@ -265,9 +272,11 @@ clyan mcp
 
 | 版本 | 亮点 |
 |------|------|
+| **v0.17.0** | Winapp2.ini 导入引擎（3377 社区清理器、45 provider、86 GB 新增可发现空间）、INI 解析器 + 变量展开 + 注册表检测 + 动态 provider |
+| **v0.16.0** | 历史准确率 `historical_accuracy` + `clean_plan` MCP 工具（按 recovery_cost 排序执行计划） |
+| **v0.15.0** | 信任系统接入 `is_protected` + `system_health`/`get_provider_feedback` MCP（18→19 工具） |
+| **v0.14.0** | Agent 反馈闭环（clean_feedback 表 + 清理准确率追踪）+ `clyan trust` 命令 |
 | **v0.13.0** | AI 决策支持层：影响预测（`would_break`/`would_affect`/`recovery_cost`）、生态分组（11 组）、清理历史分析、61+ provider 映射 |
-| **v0.12.0** | P1+P2+P3 同步推进：node_modules 瘦身、浏览器深度清理、Spotify/WhatsApp/ML-AI provider、去重持久缓存 |
-| **v0.11.0** | 重复检测全面提速（4KB 一档 I/O + 并行遍历 + inode 去重）、构建产物覆盖扩展（20 个新目录 + 文件级检测）、参考 ddh/dustoff 项目 |
 | **v0.10.0** | 执行层精简（AI 全权决策）、8 个新 Windows provider（Delivery Opt / SoftwareDistribution / Store / Teams / OneDrive / Defender / Xbox / 旧备份）、删硬编码阈值和 `is_protected` 拦截 |
 | **v0.9.0** | 大文件发现 `scan files`、重复文件清理 `--dedupe`、应用影响预警 `warning` 字段、confidence 下限修正 |
 | **v0.8.0** | 完整清理周期：验证+报告（actual_freed/delta）、磁盘趋势 --trend、clean --deep、schedule 定时清理、MCP clean_deep（16 tools） |
@@ -295,8 +304,8 @@ Clyan 不做的事：
 - 不给 AI "加工"过的数据（全量原始信号返回）
 
 对 AI agent 来说，Clyan 是**磁盘的眼和手**：
-- **眼**：50+ 扫描器覆盖所有常见缓存，每项附 size / age / rebuild_cost / provider 等完整信号
-- **手**：接收 AI 指定的 `path` + `method`，安全执行，返回 `actual_freed` / `protected_warned` / `errors`
+- **眼**：50+ 内置检测器 + 3700+ Winapp2 社区清理器，每项附 size / age / rebuild_cost / ecosystem / would_break / historical_accuracy 等完整信号
+- **手**：接收 AI 指定的 `path` + `method`，安全执行，返回 `actual_freed` / `protected_warned` / `errors` + 历史准确率反馈
 
 ## 许可证
 
@@ -317,6 +326,7 @@ Clyan 的设计和实现参考了以下开源项目：
 
 | 项目 | 参考内容 |
 |------|---------|
+| [Winapp2](https://github.com/MoscaDotTo/Winapp2) | 3700+ 社区维护的 Windows 清理器定义（CCleaner 兼容格式） |
 | [TurboClean](https://github.com/ChenAI-TGF/TurboClean) | 多进程磁盘扫描框架 |
 | [Czkawka](https://github.com/qarmin/czkawka) | 重复文件检测策略、临时文件扫描 |
 | [ddh](https://github.com/darakian/ddh) | 轻量重复文件查找 + JSON 输出格式 |
