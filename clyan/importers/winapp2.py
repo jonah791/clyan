@@ -16,6 +16,7 @@ Format:
 
 import os
 import re
+import json
 import sqlite3
 import datetime
 from pathlib import Path
@@ -256,8 +257,8 @@ def import_winapp2(content: str) -> dict:
     total_reg_keys = 0
     
     for sec in sections:
-        file_keys_json = str(sec.get("file_keys", []))
-        reg_keys_json = str(sec.get("reg_keys", []))
+        file_keys_json = json.dumps(sec.get("file_keys", []), ensure_ascii=False)
+        reg_keys_json = json.dumps(sec.get("reg_keys", []), ensure_ascii=False)
         total_file_keys += len(sec.get("file_keys", []))
         total_reg_keys += len(sec.get("reg_keys", []))
         
