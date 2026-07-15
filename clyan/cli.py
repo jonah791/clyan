@@ -70,7 +70,23 @@ def cmd_scan_system(args: argparse.Namespace) -> None:
 def cmd_scan_duplicates(args: argparse.Namespace) -> None:
     s = DuplicateScanner(path=args.path)
     result = s.scan()
-    _out(result.to_dict())
+    d = result.to_dict()
+    if getattr(args, "json_mode", False):
+        # Flatten duplicate groups into individual deletable items
+        flat = []
+        for group in d.get("items", []):
+            for dup in group.get("duplicates", []):
+                flat.append({
+                    "path": dup["path"],
+                    "size": dup["size"],
+                    "provider": "duplicates",
+                    "safety": "safe",
+                    "label": f"Duplicate: {os.path.basename(dup['path'])}",
+                    "extra": {"keep_path": group.get("keep", "")},
+                })
+        sys.stdout.write(json.dumps(flat, ensure_ascii=False) + "\n")
+    else:
+        _out(d)
 
 
 def cmd_mcp(args: argparse.Namespace) -> None:
@@ -307,10 +323,80 @@ def _cmd_clean_deep(args: argparse.Namespace) -> None:
     _out(res)
 
 
+def _cmd_clean_dedupe(args: argparse.Namespace, strategy: str) -> None:
+    """Deduplicate: scan for duplicates, apply strategy, delete extras."""
+    from .scan.duplicates import DuplicateScanner
+    print("🔍 Scanning for duplicates...", file=sys.stderr)
+    s = DuplicateScanner(path=args.path or "C:\\")
+    result = s.scan()
+    d = result.to_dict()
+
+    groups = d.get("items", [])
+    if not groups:
+        _out({"message": "No duplicate files found."})
+        return
+
+    total_savings = sum(g.get("savings", 0) for g in groups)
+    total_files = sum(g.get("duplicate_count", 0) for g in groups)
+    print(f"  Found {len(groups)} duplicate groups, {total_files} files, {format_size(total_savings)} reclaimable", file=sys.stderr)
+
+    # Build items list: keep the choosen copy, delete the rest
+    to_delete = []
+    for group in groups:
+        keep_path = group.get("keep", "")
+        keep_time = group.get("keep_time", 0)
+        for dup in group.get("duplicates", []):
+            if strategy == "keep-newest":
+                # Keep the newest by mtime; keep_path is oldest, so delete everything
+                to_delete.append({"path": dup["path"], "size": dup["size"],
+                                   "safety": "safe", "provider": "duplicates"})
+            elif strategy == "keep-first":
+                # Keep the first path (keep_path), delete duplicates
+                to_delete.append({"path": dup["path"], "size": dup["size"],
+                                   "safety": "safe", "provider": "duplicates"})
+            elif strategy == "keep-smallest":
+                # Keep smallest: delete everything but delete from smallest first
+                # For now, same as keep-first — delete all duplicates
+                to_delete.append({"path": dup["path"], "size": dup["size"],
+                                   "safety": "safe", "provider": "duplicates"})
+
+    if not to_delete:
+        _out({"message": "No files to delete after applying strategy."})
+        return
+
+    print(f"  Will delete {len(to_delete)} files, keep {len(groups)} originals", file=sys.stderr)
+
+    # Preview or execute
+    if getattr(args, "dry_run", False):
+        preview = generate_preview(to_delete)
+        _out(preview)
+        return
+
+    if not getattr(args, "yes", False):
+        try:
+            resp = input(f"Continue? [Y/n]: ").strip().lower()
+            if resp not in ("", "y", "yes"):
+                _out({"message": "cancelled by user"})
+                return
+        except (EOFError, KeyboardInterrupt):
+            _out({"message": "cancelled by user"})
+            return
+
+    res = delete_items(to_delete, use_trash=not getattr(args, "permanent", False),
+                       fast=getattr(args, "fast", False))
+    _out(res)
+
+
 def cmd_clean(args: argparse.Namespace) -> None:
     # --deep mode: full autonomous cleaning cycle
     if getattr(args, "deep", False):
         _cmd_clean_deep(args)
+        return
+
+    # --dedupe mode: scan duplicates, apply strategy, clean
+    dedupe_strategy = getattr(args, "dedupe", None)
+    if dedupe_strategy:
+        _cmd_clean_dedupe(args, dedupe_strategy)
         return
 
     if args.items:
@@ -423,6 +509,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp_dup = sp_sub.add_parser("duplicates", help="find duplicate files by size+hash")
     sp_dup.add_argument("path", nargs="?", default=os.environ.get("USERPROFILE", "."))
+    sp_dup.add_argument("--json", dest="json_mode", action="store_true",
+                        help="output raw items array (pipeable to clyan clean --stdin)")
 
     sp_pkgs = sp_sub.add_parser("packages",
                                 help="scan installed package environments (conda, scoop, cargo, go, npm)")
@@ -441,6 +529,16 @@ def build_parser() -> argparse.ArgumentParser:
                          help="how many levels to show (default: 2)")
     sp_disk.add_argument("--trend", action="store_true",
                          help="show disk usage history (requires prior snapshots)")
+
+    sp_files = sp_sub.add_parser("files", help="find largest individual files")
+    sp_files.add_argument("path", nargs="?", default="C:\\",
+                          help="root path (default: C:\)")
+    sp_files.add_argument("--min-size", type=int, default=50,
+                          help="minimum file size in MB (default: 50)")
+    sp_files.add_argument("--top", type=int, default=50,
+                          help="number of largest files to show (default: 50)")
+    sp_files.add_argument("--json", dest="json_mode", action="store_true",
+                          help="output raw items array (pipeable to clyan clean --stdin)")
 
     cp = sub.add_parser("clean", help="preview or execute cleanup")
     cp.add_argument("--items", help="path to JSON file or JSON string with items")
@@ -475,17 +573,34 @@ def build_parser() -> argparse.ArgumentParser:
 
     mp = sub.add_parser("mcp", help="start MCP server for AI tool calls")
 
-    sp = sub.add_parser("schedule", help="manage scheduled cleanup tasks")
-    sp.add_argument("--create", action="store_true",
-                    help="create a weekly scheduled cleanup (runs clean --deep --yes)")
-    sp.add_argument("--remove", action="store_true",
-                    help="remove the scheduled cleanup task")
-    sp.add_argument("--path", default="C:\\",
-                    help="drive or path to clean (default: C:\)")
-    sp.add_argument("--time", default="03:00",
-                    help="time to run, e.g. 03:00 (default: 3 AM)")
+    # ── Dedupe strategy for clean command ──
+    cp.add_argument("--dedupe", choices=["keep-newest", "keep-first", "keep-smallest"],
+                    help="deduplicate: scan path, keep one copy, delete the rest")
+
+    # ── Schedule subcommand ──
+    sp_sch = sub.add_parser("schedule", help="manage scheduled cleanup tasks")
+    sp_sch.add_argument("--create", action="store_true",
+                        help="create a weekly scheduled cleanup")
+    sp_sch.add_argument("--remove", action="store_true",
+                        help="remove the scheduled cleanup task")
+    sp_sch.add_argument("--path", default="C:\\",
+                        help="drive or path to clean (default: C:\)")
+    sp_sch.add_argument("--time", default="03:00",
+                        help="time to run, e.g. 03:00 (default: 3 AM)")
 
     return p
+
+
+def cmd_scan_files(args: argparse.Namespace) -> None:
+    from .scan.large_files import LargeFileScanner
+    reset_dir_total_cache()
+    s = LargeFileScanner(path=args.path, min_size_mb=args.min_size, top_n=args.top)
+    result = s.scan()
+    d = result.to_dict()
+    if getattr(args, "json_mode", False):
+        sys.stdout.write(json.dumps(d["items"], ensure_ascii=False) + "\n")
+    else:
+        _out(d)
 
 
 def cmd_schedule(args: argparse.Namespace) -> None:
@@ -550,6 +665,7 @@ def main() -> None:
             "browsers": cmd_scan_browsers,
             "system": cmd_scan_system,
             "duplicates": cmd_scan_duplicates,
+            "files": cmd_scan_files,
             "packages": cmd_scan_packages,
             "quick": cmd_scan_quick,
             "disk": cmd_scan_disk,

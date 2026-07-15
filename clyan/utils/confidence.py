@@ -67,6 +67,44 @@ _KNOWN_SAFE = {
 # ── Orphan temp dir prefixes ──
 _ORPHAN_PREFIXES = ("pip-unpack-", "npm-", "tmp-", "conda-", "msi-", "vs_")
 
+# ── Impact warnings by provider/type ──
+# Shown in --explain and preview to warn about side effects.
+_IMPACT_WARNINGS = {
+    # Browser caches — clearing logs you out
+    "browser_cache": "⚠ 清除后需要重新登录网站",
+    "chrome": "⚠ 清除后需要重新登录网站",
+    "edge": "⚠ 清除后需要重新登录网站",
+    "firefox": "⚠ 清除后需要重新登录网站",
+    # App caches — may reset settings
+    "discord": "⚠ 可能清除 Discord 登录状态和偏好设置",
+    "slack": "⚠ 可能清除 Slack 登录状态",
+    "teams": "⚠ 可能清除 Teams 登录状态和缓存文件",
+    "wechat": "⚠ 微信缓存包含聊天图片和文件",
+    "zoom": "⚠ 可能清除 Zoom 录播和会议历史",
+    # Dependency caches — re-download cost
+    "npm_cache": "⚠ 删除后 npm install 需要重新下载所有包",
+    "pip_cache": "⚠ 删除后 pip install 需要重新下载所有包",
+    "cargo_registry": "⚠ 删除后 cargo build 需要重新下载 crate",
+    "go_cache": "⚠ 删除后 go build 需要重新下载 module",
+    "nuget_cache": "⚠ 删除后 dotnet restore 需要重新下载包",
+    "gradle_cache": "⚠ 删除后 gradle build 需要重新下载依赖",
+    "maven_cache": "⚠ 删除后 mvn build 需要重新下载依赖",
+    "docker_images": "⚠ 删除后需要重新拉取镜像",
+    # IDE caches — may lose customizations
+    "vscode": "⚠ 可能清除 VS Code 扩展缓存和工作区状态",
+    "jetbrains": "⚠ 可能清除 IDE 索引缓存（下次打开会重建）",
+    # Windows system — varies
+    "prefetch": "⚠ 删除可能短暂影响应用启动速度",
+    "windows_update": "⚠ 删除后系统更新文件可能需要重新下载",
+    "thumbnail_cache": "无副作用，系统自动重建缩略图",
+    "font_cache": "无副作用，系统自动重建字体缓存",
+    "recycle_bin": "安全：回收站内容清理",
+    "system_temp": "无副作用，临时文件可安全删除",
+    "dotnet_ngen": "⚠ 下次运行 .NET 应用时会自动重新编译镜像",
+    "wer_reports": "无副作用，错误报告可安全删除",
+    "search_index": "⚠ 删除后搜索索引会重建（可能暂时影响搜索速度）",
+}
+
 
 def compute(item: dict) -> tuple[float, list[str]]:
     """Score an item dict — returns (0.0–1.0, list of reason fragments).
@@ -141,11 +179,11 @@ def compute(item: dict) -> tuple[float, list[str]]:
     else:
         score -= 20.0; reasons.append("⚠ 重建成本高（需网络下载）")
 
-    return round(min(score / 100.0, 1.0), 2), reasons
+    return round(max(min(score / 100.0, 1.0), 0.0), 2), reasons
 
 
 def compute_and_attach(item: dict) -> None:
-    """Compute confidence + reason for *item* and store in-place."""
+    """Compute confidence + reason + warning for *item* and store in-place."""
     if "rebuild_cost" not in item:
         item["rebuild_cost"] = infer_rebuild_cost(
             item.get("provider", ""), item.get("path", ""),
@@ -153,3 +191,30 @@ def compute_and_attach(item: dict) -> None:
     score, reasons = compute(item)
     item["confidence"] = score
     item["reason"] = "；".join(reasons)
+    # Attach impact warning
+    item["warning"] = _impact_warning(item.get("provider", ""), item.get("type", ""),
+                                        item.get("path", ""))
+
+
+def _impact_warning(provider: str, item_type: str, path: str) -> str:
+    """Return a user-facing warning about side effects of deleting this item."""
+    # Check provider-based warnings
+    p = (provider or "").lower()
+    if p in _IMPACT_WARNINGS:
+        return _IMPACT_WARNINGS[p]
+    # Check type-based (from extra dict)
+    t = (item_type or "").lower()
+    if t in _IMPACT_WARNINGS:
+        return _IMPACT_WARNINGS[t]
+    # Check path-based heuristics
+    if path:
+        pl = path.lower()
+        if "browser" in pl or "chrome" in pl or "edge" in pl or "firefox" in pl:
+            return _IMPACT_WARNINGS.get("browser_cache", "") if "cache" in pl else ""
+        if "discord" in pl:
+            return _IMPACT_WARNINGS.get("discord", "")
+        if "slack" in pl:
+            return _IMPACT_WARNINGS.get("slack", "")
+        if "teams" in pl:
+            return _IMPACT_WARNINGS.get("teams", "")
+    return ""

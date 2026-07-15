@@ -34,6 +34,7 @@ def generate_preview(items: list[dict]) -> dict:
             "size": size,
             "size_human": format_size(size),
             "type": item.get("type", "unknown"),
+            "warning": item.get("warning", ""),
         })
         total += size
 
