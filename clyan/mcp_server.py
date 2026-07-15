@@ -6,7 +6,7 @@ import uuid
 from typing import Any
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import Tool, TextContent
+from mcp.types import Tool, TextContent, Resource
 
 from .scan.space import SpaceScanner
 from .scan.dev_garbage import DevGarbageScanner
@@ -352,6 +352,28 @@ async def handle_list_tools() -> list[Tool]:
 
 
 @server.call_tool()
+
+@server.list_resources()
+async def handle_list_resources():
+    return [
+        Resource(
+            uri="disk://C:/health",
+            name="C: Drive Health",
+            description="Instant disk health: status, free space, safe reclaimable, trend",
+            mimeType="application/json",
+        ),
+    ]
+
+
+@server.read_resource()
+async def handle_read_resource(uri: str):
+    from .reflex import check_pulse
+    if uri == "disk://C:/health":
+        data = check_pulse("C:\")
+        return TextContent(type="text", text=json.dumps(data, ensure_ascii=False, indent=2))
+    raise ValueError(f"Unknown resource: {uri}")
+
+
 async def handle_call_tool(name: str, arguments: dict) -> list[TextContent]:
     try:
         # ── check_disk_pulse ──

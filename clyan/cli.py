@@ -782,10 +782,28 @@ def main() -> None:
     elif args.command == "pulse":
         from .reflex import check_pulse
         result = check_pulse(args.path)
+        # Human-readable summary
+        status_icon = {"healthy": "🟢", "warning": "🟡", "critical": "🔴"}.get(result["status"], "❓")
+        print(f"{status_icon}  Disk {result['path']}: {result['free_gb']} GB free ({result['free_pct']}%)")
+        print(f"   Total: {result['total_gb']} GB  |  Used: {result['used_gb']} GB")
+        print(f"   Safe reclaimable: {result['safe_reclaimable_gb']} GB  |  Days critical: {result['days_until_critical']}")
+        growth = result.get('growth_rate_gb_per_week')
+        if growth:
+            print(f"   Growth: {growth} GB/week")
+        print(f"   Status: {result['status'].upper()}  |  Cached: {result.get('cached',False)}  |  {result.get('ellapsed_ms',0)}ms")
+        # Also print JSON for AI consumption
+        print("---")
         print(json.dumps(result, ensure_ascii=False, indent=2))
     elif args.command == "auto-clear":
         from .reflex import auto_clear_safe
         result = auto_clear_safe(path=args.path, target_gb=args.target_gb)
+        icon = "✅" if result.get("items_failed",0) == 0 else "⚠️"
+        print(f"{icon}  Auto-clear: {result.get('message','')}")
+        print(f"   Items: {result.get('items_cleared',0)} cleared, {result.get('items_failed',0)} failed")
+        print(f"   Freed: {result.get('reclaimed_human','0 B')}  |  Actual: {result.get('actual_freed_human','?')}")
+        print(f"   Protected skipped: {result.get('protected_paths_skipped',0)}")
+        print(f"   Time: {result.get('ellapsed_ms',0)/1000:.1f}s")
+        print("---")
         print(json.dumps(result, ensure_ascii=False, indent=2))
     elif args.command == "mcp":
         cmd_mcp(args)

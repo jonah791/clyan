@@ -5,7 +5,7 @@ import ctypes.wintypes
 from ..utils.size import format_size
 from ..utils.dirtree import dir_total
 from ..utils.scanner_base import ScanResult
-from ..reflex import _update_pulse_after_scan
+from ..reflex import _refresh_pulse_cache
 
 
 _SKIP = {
@@ -150,7 +150,7 @@ def _scan_disk(path: str = "C:\\", depth: int = 2, top_n: int = 15) -> ScanResul
     }
     result.total_size = used
     result.scan_time_ms = (time.time() - start) * 1000
-    _update_pulse_after_scan(path, {"items": [], **result.extra})
+    _refresh_pulse_cache(path, {"items": [], **result.extra})
     return result
 
 
