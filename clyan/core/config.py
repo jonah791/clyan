@@ -198,6 +198,10 @@ def is_protected(path: str) -> bool:
 
     norm = os.path.normpath(path)
 
+    # Trust override: if path or ancestor is trusted, skip protection
+    if _any_trusted(norm):
+        return False
+
     # Find all matching protection rules
     matched_protections = [pp for pp in _PROTECTED if pp.matches(norm)]
     if not matched_protections:
@@ -209,6 +213,21 @@ def is_protected(path: str) -> bool:
             return False
 
     return True
+
+
+def _any_trusted(norm: str) -> bool:
+    """Check if path or any ancestor is in the trusted list."""
+    try:
+        from .history import trust_list as _tl
+        trusted = _tl()
+        nl = norm.lower()
+        for tp in trusted:
+            tp_path = tp["path"]
+            if nl == tp_path or nl.startswith(tp_path + os.sep) or tp_path.startswith(nl + os.sep):
+                return True
+    except Exception:
+        pass
+    return False
 
 
 def _classify_path(norm: str) -> DangerLevel:

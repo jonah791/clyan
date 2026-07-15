@@ -307,6 +307,27 @@ async def handle_list_tools() -> list[Tool]:
                 "required": ["op_id"],
             },
         ),
+        Tool(
+            name="system_health",
+            description="Quick health check: disk usage + reclaimable summary + recent clean history + trend. Best first call for agents.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Drive to check (default: C:\\)"},
+                },
+            },
+        ),
+        Tool(
+            name="get_provider_feedback",
+            description="Return historical accuracy stats for a cache provider. Shows predicted vs actual freed for past clean operations.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "provider": {"type": "string", "description": "e.g. pip_cache, npm_cache, browser"},
+                },
+                "required": ["provider"],
+            },
+        ),
     ]
 
 
@@ -529,6 +550,49 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent]:
             op_id = arguments["op_id"]
             ok = mark_undone(op_id)
             return _ok({"operation_id": op_id, "undone": ok})
+
+        # ── system_health ──
+        elif name == "system_health":
+            path = arguments.get("path", "C:\\")
+            from .scan.disk_summary import scan_disk
+            from .core.history import get_disk_trend, get_provider_feedback
+            disk_result = scan_disk(path, depth=1)
+            disk_data = disk_result.to_dict()
+            trend = get_disk_trend(path, limit=7)
+            # Simple feedback: get top providers
+            feedback = {}
+            for p in ["npm_cache", "pip_cache", "browser", "system"]:
+                try:
+                    fb = get_provider_feedback(p, limit=3)
+                    if fb:
+                        feedback[p] = {
+                            "ops": len(fb),
+                            "avg_accuracy": round(sum(f["accuracy_ratio"] for f in fb) / len(fb), 2),
+                        }
+                except Exception:
+                    pass
+            return _ok({
+                "disk": disk_data.get("disk", {}),
+                "top_dirs": disk_data.get("top_dirs", [])[:6],
+                "reclaimable": disk_data.get("reclaimable", {}),
+                "trend": [{"date": s["timestamp"][:10], "free_human": format_size(s["free_size"])} for s in trend[-5:]] if trend else [],
+                "provider_feedback": feedback,
+            })
+
+        # ── get_provider_feedback ──
+        elif name == "get_provider_feedback":
+            provider = arguments["provider"]
+            data = get_provider_feedback(provider, limit=10)
+            return _ok({
+                "provider": provider,
+                "history": data,
+                "summary": {
+                    "total_ops": len(data),
+                    "avg_accuracy": round(sum(f["accuracy_ratio"] for f in data) / max(len(data), 1), 2),
+                    "total_predicted": sum(f["predicted_size"] for f in data),
+                    "total_actual": sum(f["actual_freed"] for f in data),
+                } if data else None,
+            })
 
         else:
             return _ok({"error": f"unknown tool: {name}"})
