@@ -97,6 +97,26 @@ _IMPACT_DB: dict[str, tuple[list[str], list[str], str]] = {
     ),
 
     # === IDE / dev tool caches ===
+    "ide": (
+        ["IDE cache cleared -- auto-rebuilds on next launch"],
+        [],
+        "low",
+    ),
+    "ide:vscode_cache": (
+        ["VS Code extension cache may need to re-sync"],
+        ["code"],
+        "low",
+    ),
+    "ide:vscode_extensions": (
+        ["VS Code extensions would need to be re-downloaded"],
+        ["code"],
+        "medium",
+    ),
+    "ide:jetbrains_cache": (
+        ["JetBrains IDE caches and indexes would be rebuilt"],
+        ["intellij", "pycharm", "webstorm"],
+        "medium",
+    ),
     "vscode_cache": (
         ["VS Code extension cache may need to re-sync"],
         ["code"],
@@ -141,6 +161,11 @@ _IMPACT_DB: dict[str, tuple[list[str], list[str], str]] = {
     ),
 
     # === Python ===
+    "python:pip_cache": (
+        ["pip install would re-download all packages from PyPI"],
+        ["pip", "python", "virtualenv"],
+        "high",
+    ),
     "python": (
         ["Python caches (__pycache__, mypy, pytest) cleared — auto-rebuilt on next run"],
         ["python"],
@@ -160,6 +185,16 @@ _IMPACT_DB: dict[str, tuple[list[str], list[str], str]] = {
     ),
 
     # === Windows system ===
+    "win_deep": (
+        ["Windows system cache analyzed via DISM -- safe to reclaim space"],
+        ["windows"],
+        "none",
+    ),
+    "driver_store": (
+        ["Driver store cache -- old driver versions can be removed via DISM"],
+        ["windows"],
+        "none",
+    ),
     "system": (
         ["Temporary files deleted -- no side effects"],
         [],
@@ -244,6 +279,41 @@ _IMPACT_DB: dict[str, tuple[list[str], list[str], str]] = {
         ["node", "npm"],
         "none",
     ),
+    "ide:rust": (
+        ["Rust build artifacts deleted, cargo build required"],
+        ["cargo", "rustc"],
+        "high",
+    ),
+    "windows_extra:old_windows": (
+        ["Previous Windows installation files deleted -- cannot roll back"],
+        ["windows recovery"],
+        "none",
+    ),
+    "windows_extra:ml_cache": (
+        ["ML model cache cleared -- large re-download required (GBs)"],
+        ["huggingface", "ollama", "pytorch"],
+        "high",
+    ),
+    "windows_extra:onedrive_cache": (
+        ["OneDrive cache cleared -- will be re-downloaded on sync"],
+        ["onedrive"],
+        "low",
+    ),
+    "windows_extra:software_distribution": (
+        ["Windows Update download cache cleared -- safe"],
+        ["windows update"],
+        "low",
+    ),
+    "windows_system": (
+        ["Windows system cache -- auto-rebuilds"],
+        ["windows"],
+        "none",
+    ),
+    "flutter": (
+        ["Flutter build cache cleared -- 'flutter pub get' may be needed"],
+        ["flutter", "dart"],
+        "medium",
+    ),
 }
 
 
@@ -259,7 +329,19 @@ def impact_for(provider: str, path: str = "", extra: dict | None = None) -> dict
     p = (provider or "").lower()
     e = extra or {}
 
-    # Direct lookup
+    # Type-based lookup first (e.g., "python:pip_cache" beats "python")
+    ctype = e.get("type", "")
+    if ctype:
+        type_lookup = f"{p}:{ctype}"
+        if type_lookup in _IMPACT_DB:
+            breaks, affects, cost = _IMPACT_DB[type_lookup]
+            return {
+                "would_break": breaks,
+                "would_affect": affects,
+                "recovery_cost": cost,
+            }
+
+    # Direct provider lookup
     if p in _IMPACT_DB:
         breaks, affects, cost = _IMPACT_DB[p]
         return {
@@ -335,7 +417,7 @@ def ecosystem_for(provider: str, path: str = "") -> str:
                      "recycle_bin", "prefetch", "thumbnail_cache",
                      "old_windows", "defender_cache", "wer_reports",
                      "search_index", "dotnet_ngen", "windows_extra",
-                     "windows_system", "system"},
+                     "windows_system", "system", "win_deep", "driver_store"},
         "ml": {"ml_cache", "docker_images"},
         "build": {"build_artifacts", "build_artifacts_file"},
     }
@@ -363,7 +445,12 @@ def attach_impact(item: dict) -> None:
         return
     prov = item.get("provider", "")
     path = item.get("path", "")
-    extra = item.get("extra", {})
+    # extra may be merged into top-level by CacheItem.to_dict()
+    extra = item.get("extra", {}) or {}
+    # Check top-level for type-like keys (from CacheItem extra merge)
+    if not extra.get("type") and item.get("type"):
+        extra = dict(extra)
+        extra["type"] = item["type"]
     impact = impact_for(prov, path, extra)
     item.setdefault("would_break", impact["would_break"])
     item.setdefault("would_affect", impact["would_affect"])
