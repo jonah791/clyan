@@ -212,6 +212,49 @@ def _scan_old_windows_backups(root: str) -> list[CacheItem]:
     return results
 
 
+def _scan_ml_cache(root: str) -> list[CacheItem]:
+    """ML/AI model caches — HuggingFace, Ollama, PyTorch, TensorFlow."""
+    results = []
+    user = os.environ.get("USERPROFILE", "C:\\Users\\default")
+    local = os.environ.get("LOCALAPPDATA", "")
+    appdata = os.environ.get("APPDATA", "")
+    
+    ml_paths = [
+        # HuggingFace cache (can be 10-100 GB)
+        (os.path.join(user, ".cache", "huggingface"), "HuggingFace Models/Data"),
+        (os.path.join(local, "huggingface"), "HuggingFace Local"),
+        # Ollama models
+        (os.path.join(user, ".ollama", "models"), "Ollama Models"),
+        (os.path.join(local, "Ollama"), "Ollama Cache"),
+        # PyTorch
+        (os.path.join(user, ".cache", "torch"), "PyTorch Hub Cache"),
+        # TensorFlow
+        (os.path.join(user, ".cache", "tensorflow"), "TensorFlow Cache"),
+        # ONNX Runtime
+        (os.path.join(local, "onnxruntime"), "ONNX Runtime Cache"),
+        # LM Studio
+        (os.path.join(user, ".lmstudio", "models"), "LM Studio Models"),
+        # llama.cpp
+        (os.path.join(user, ".cache", "llama.cpp"), "llama.cpp Cache"),
+        # OpenCV
+        (os.path.join(user, ".cache", "opencv"), "OpenCV Cache"),
+        # pip ML packages
+        (os.path.join(user, ".cache", "torch_extensions"), "Torch Extensions Cache"),
+    ]
+    for p, label in ml_paths:
+        if os.path.isdir(p):
+            sz = dir_total(p)
+            if sz > 0:
+                results.append(CacheItem(
+                    path=p, size=sz, provider="windows_extra",
+                    label=label,
+                    safety=SafetyLevel.CAUTION,
+                    extra={"type": "ml_cache", "rebuild_cost": "high",
+                           "note": f"ML model cache ({label}) -- large download if deleted"},
+                ))
+    return results
+
+
 # -- Register all providers --
 register("delivery_optimization", _scan_delivery_opt)
 register("software_distribution", _scan_software_distribution)
@@ -221,3 +264,4 @@ register("onedrive_cache", _scan_onedrive_cache)
 register("defender_cache", _scan_defender_scan_cache)
 register("xbox_cache", _scan_xbox_cache)
 register("old_windows_backups", _scan_old_windows_backups)
+register("ml_cache", _scan_ml_cache)

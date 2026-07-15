@@ -572,6 +572,10 @@ def build_parser() -> argparse.ArgumentParser:
     sp_files.add_argument("--json", dest="json_mode", action="store_true",
                           help="output raw items array (pipeable to clyan clean --stdin)")
 
+    sp_nw = sp_sub.add_parser("node-waste", help="find non-essential files inside node_modules")
+    sp_nw.add_argument("path", nargs="?", default=os.environ.get("USERPROFILE", "."),
+                       help="project root to scan for node_modules waste")
+
     cp = sub.add_parser("clean", help="preview or execute cleanup")
     cp.add_argument("--items", help="path to JSON file or JSON string with items")
     cp.add_argument("--stdin", action="store_true", help="read items JSON from stdin")
@@ -633,6 +637,14 @@ def cmd_scan_files(args: argparse.Namespace) -> None:
         sys.stdout.write(json.dumps(d["items"], ensure_ascii=False) + "\n")
     else:
         _out(d)
+
+
+def cmd_scan_node_waste(args: argparse.Namespace) -> None:
+    from .scan.node_waste import NodeWasteScanner
+    reset_dir_total_cache()
+    s = NodeWasteScanner(path=args.path)
+    result = s.scan()
+    _out(result.to_dict())
 
 
 def cmd_schedule(args: argparse.Namespace) -> None:
@@ -704,6 +716,7 @@ def main() -> None:
             "packages": cmd_scan_packages,
             "quick": cmd_scan_quick,
             "disk": cmd_scan_disk,
+            "node-waste": cmd_scan_node_waste,
         }
         fn = dispatch.get(args.scan_type)
         if fn:

@@ -158,6 +158,45 @@ def _scan_vsstudio(root: str) -> list[CacheItem]:
     return results
 
 
+def _scan_spotify(root: str) -> list[CacheItem]:
+    results = []
+    local = os.environ.get("LOCALAPPDATA", "")
+    appdata = os.environ.get("APPDATA", "")
+    paths = [
+        os.path.join(local, "Spotify", "Storage"),
+        os.path.join(local, "Spotify", "Data"),
+        os.path.join(local, "Spotify", "BrowserCache"),
+        os.path.join(appdata, "Spotify", "Cache"),
+    ]
+    for p in paths:
+        if os.path.isdir(p):
+            sz = dir_total(p)
+            if sz > 0:
+                results.append(CacheItem(
+                    path=p, size=sz, provider="app_cache",
+                    label=f"Spotify {os.path.basename(p)}",
+                    safety=SafetyLevel.SAFE,
+                    extra={"type": "spotify", "rebuild_cost": "low"},
+                ))
+    return results
+
+
+def _scan_whatsapp(root: str) -> list[CacheItem]:
+    results = []
+    local = os.environ.get("LOCALAPPDATA", "")
+    p = os.path.join(local, "WhatsApp", "Cache")
+    if os.path.isdir(p):
+        sz = dir_total(p)
+        if sz > 0:
+            results.append(CacheItem(
+                path=p, size=sz, provider="app_cache",
+                label="WhatsApp Cache",
+                safety=SafetyLevel.SAFE,
+                extra={"type": "whatsapp", "rebuild_cost": "low"},
+            ))
+    return results
+
+
 register("discord", _scan_discord)
 register("slack", _scan_slack)
 register("teams", _scan_teams)
@@ -165,3 +204,5 @@ register("wechat", _scan_wechat)
 register("zoom", _scan_zoom)
 register("obsidian", _scan_obsidian)
 register("vsstudio", _scan_vsstudio)
+register("spotify", _scan_spotify)
+register("whatsapp", _scan_whatsapp)

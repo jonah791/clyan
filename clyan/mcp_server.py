@@ -23,7 +23,7 @@ from .utils.scanner_base import _enrich
 from .utils.confidence import compute_and_attach
 
 
-server = Server("clyan", version="0.11.0")
+server = Server("clyan", version="0.12.0")
 
 # ── In-memory store for two-phase clean proposals ──
 _proposals: dict[str, dict[str, Any]] = {}

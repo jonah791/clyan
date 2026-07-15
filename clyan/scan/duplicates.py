@@ -1,11 +1,55 @@
 import os
 import time
 import hashlib
+import json
 import threading
+from pathlib import Path
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from ..utils.scanner_base import ScanResult, BaseScanner, safe_walk
 from ..utils.size import format_size
+
+
+# ── P3: Persistent hash cache for duplicate detection ──
+_CACHE_DIR = Path(os.environ.get("LOCALAPPDATA", "")) / "clyan"
+_CACHE_PATH = _CACHE_DIR / "duplicates_hash_v1.json"
+_CACHE_LOCK = threading.Lock()
+
+
+def _load_hash_cache() -> dict:
+    try:
+        if _CACHE_PATH.exists():
+            data = json.loads(_CACHE_PATH.read_text())
+            if data.get("version") == 1:
+                return data.get("entries", {})
+    except Exception:
+        pass
+    return {}
+
+
+def _save_hash_cache(entries: dict) -> None:
+    try:
+        _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        with _CACHE_LOCK:
+            _CACHE_PATH.write_text(json.dumps({"version": 1, "entries": entries}, indent=1))
+    except Exception:
+        pass
+
+
+def _cached_partial_hash(path: str, size: int, cache: dict) -> str | None:
+    """Return cached partial hash if file is unchanged, else None."""
+    entry = cache.get(path)
+    if entry is None:
+        return None
+    if entry.get("size") != size:
+        return None
+    try:
+        current_mtime = os.path.getmtime(path)
+        if abs(entry.get("mtime", 0) - current_mtime) > 0.001:
+            return None
+    except Exception:
+        return None
+    return entry.get("partial_hash")
 
 
 # ── P0 improvement 1: 4KB partial hash (one disk block) ──
@@ -134,21 +178,41 @@ def _find_duplicates(root: str) -> list[dict]:
     candidates = {sz: paths for sz, paths in all_by_size.items() if len(paths) > 1}
     scan_time = time.time() - scan_start
 
-    # Phase 2: partial hash (4KB each)
+    # Phase 2: partial hash (4KB each) — with persistent cache (P3)
     partial_groups: dict[str, list[str]] = defaultdict(list)
     hash_lock = threading.Lock()
+    
+    # Load cache on first call; use mutable containers for closures
+    hash_cache = _load_hash_cache()
+    cache_state = {"dirty": False, "hits": 0, "misses": 0}
 
     def _hash_file(fp_size):
         fp, sz = fp_size
+        cached = _cached_partial_hash(fp, sz, hash_cache)
+        if cached:
+            with hash_lock:
+                partial_groups[f"{sz}:{cached}"].append(fp)
+                cache_state["hits"] += 1
+            return
         h = _file_hash(fp, sz)
         if h:
             with hash_lock:
                 partial_groups[f"{sz}:{h}"].append(fp)
+                cache_state["misses"] += 1
+                cache_state["dirty"] = True
+                try:
+                    mtime = os.path.getmtime(fp)
+                    hash_cache[fp] = {"size": sz, "mtime": mtime, "partial_hash": h}
+                except Exception:
+                    pass
 
     hash_start = time.time()
     hash_tasks = [(fp, sz) for sz, paths in candidates.items() for fp in paths]
     with ThreadPoolExecutor(max_workers=_HASH_THREADS) as pool:
         list(pool.map(_hash_file, hash_tasks))
+    
+    if cache_state["dirty"]:
+        _save_hash_cache(hash_cache)
 
     hash_time = time.time() - hash_start
 
