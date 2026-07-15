@@ -47,11 +47,11 @@ def _scan_one(path: str, max_depth: int, current_depth: int) -> tuple[list, int]
         except Exception:
             pass
 
-    # Parallel dir_total for leaf directories
+    # Parallel dir_total (shallow = max_depth=1) for leaf directories
     if dirs_to_size:
         n = min(8, len(dirs_to_size))
         with ThreadPoolExecutor(max_workers=n) as pool:
-            futures = {pool.submit(dir_total, fp): (name, fp) for name, fp in dirs_to_size}
+            futures = {pool.submit(lambda fp: dir_total(fp, 1), fp): (name, fp) for name, fp in dirs_to_size}
             for f in as_completed(futures):
                 name, fp = futures[f]
                 try:
