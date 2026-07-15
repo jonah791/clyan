@@ -225,6 +225,15 @@ def auto_clear_safe(path: str = "C:\\", target_gb: float = 0,
                     items.append(item_data)
 
     # Fall back to full scan if no cached data
+    scan_message = ""
+    if not items:
+        # Show estimate from pulse cache before scanning
+        pulse = _read_pulse_cache(max_age=7200)
+        if pulse and pulse.get("cost_none_reclaimable_gb", 0) > 0:
+            scan_message = "Scanning to find cost=none items..."
+        else:
+            scan_message = "First scan (no cached data yet)..."
+    
     if not items:
         from .scan.dev_garbage import DevGarbageScanner
         scanner = DevGarbageScanner(root=path)

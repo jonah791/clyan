@@ -31,7 +31,20 @@ def _load_learning() -> dict:
     try:
         history = get_history(limit=50)
         for op in history:
-            items = op.get("items", op.get("results", []))
+            # items are stored as JSON string in items_json
+            raw = op.get("items_json", "[]")
+            if isinstance(raw, str):
+                try:
+                    items = json.loads(raw)
+                except (json.JSONDecodeError, TypeError):
+                    items = []
+            elif isinstance(raw, list):
+                items = raw
+            else:
+                items = []
+            # Also try 'results' and 'items' keys for MCP-based records
+            if not items:
+                items = op.get("results", op.get("items", []))
             for item in items:
                 prov = item.get("provider", "unknown")
                 if prov not in learning["provider_patterns"]:
@@ -42,14 +55,13 @@ def _load_learning() -> dict:
                     }
                 pattern = learning["provider_patterns"][prov]
                 pattern["total_in_history"] += 1
-                # If the item was in a clean operation (success), count as cleaned
-                if item.get("success", False) and op.get("success_count", 0) > 0:
+                # Count as cleaned if operation was successful
+                if op.get("success_count", 0) > 0:
                     pattern["cleaned_in_history"] += 1
-                # Items that reappear in later scans were skipped
-                if item.get("size", 0) > 0:
-                    pattern["skipped_in_history"] = (
-                        pattern["total_in_history"] - pattern["cleaned_in_history"]
-                    )
+                # Items that were not cleaned
+                pattern["skipped_in_history"] = (
+                    pattern["total_in_history"] - pattern["cleaned_in_history"]
+                )
     except Exception:
         pass
 
