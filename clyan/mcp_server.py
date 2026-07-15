@@ -20,10 +20,10 @@ from .clean.execute import delete_items
 from .utils.size import format_size
 from .core.history import get_history, get_operation, mark_undone
 from .utils.scanner_base import _enrich
-from .utils.confidence import compute_and_attach, compute as compute_confidence
+from .utils.confidence import compute_and_attach
 
 
-server = Server("clyan", version="0.8.0")
+server = Server("clyan", version="0.9.2")
 
 # ── In-memory store for two-phase clean proposals ──
 _proposals: dict[str, dict[str, Any]] = {}
@@ -181,6 +181,10 @@ async def handle_list_tools() -> list[Tool]:
                         "type": "boolean",
                         "description": "Send to recycle bin (default true). Use false for permanent delete.",
                     },
+                    "fast": {
+                        "type": "boolean",
+                        "description": "Direct delete for large items (default false).",
+                    },
                 },
             },
         ),
@@ -197,6 +201,10 @@ async def handle_list_tools() -> list[Tool]:
                         "description": "Filter strategy (default: safe)",
                     },
                     "use_trash": {"type": "boolean", "description": "Send to recycle bin (default true)"},
+                    "fast": {
+                        "type": "boolean",
+                        "description": "Direct delete for large items (default false).",
+                    },
                 },
             },
         ),
@@ -379,7 +387,7 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent]:
 
         # ── clean_auto ──
         elif name == "clean_auto":
-            path = arguments.get("path", "C:\\")
+            path = arguments.get("path", os.environ.get("USERPROFILE", "C:\\"))
             strategy = arguments.get("strategy", "safe")
             min_confidence = arguments.get("min_confidence")
             use_trash = arguments.get("use_trash", True)
@@ -402,7 +410,8 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent]:
                 return _ok({"message": "No items match the filter criteria.", "deleted": 0})
 
             # 4. Execute
-            result = delete_items(items, use_trash=use_trash)
+            fast = arguments.get("fast", False)
+            result = delete_items(items, use_trash=use_trash, fast=fast)
             result["confidence_summary"] = _confidence_summary(items)
             return _ok(result)
 
@@ -411,6 +420,7 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent]:
             path = arguments.get("path", os.environ.get("USERPROFILE", "C:\\"))
             strategy = arguments.get("strategy", "safe")
             use_trash = arguments.get("use_trash", True)
+            fast = arguments.get("fast", False)
 
             # 1. Run all scanners
             all_items: list[dict] = []
@@ -439,7 +449,7 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent]:
                 return _ok({"message": f"No items match strategy '{strategy}'.", "deleted": 0})
 
             # 4. Execute
-            result = delete_items(items, use_trash=use_trash)
+            result = delete_items(items, use_trash=use_trash, fast=fast)
             result["confidence_summary"] = _confidence_summary(items)
 
             # 5. Verify — get actual freed space

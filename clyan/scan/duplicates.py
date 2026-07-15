@@ -4,7 +4,7 @@ import hashlib
 import threading
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from ..utils.scanner_base import ScanResult, BaseScanner
+from ..utils.scanner_base import ScanResult, BaseScanner, safe_walk
 from ..utils.size import format_size
 
 
@@ -48,11 +48,7 @@ def _find_duplicates(root: str) -> list[dict]:
     skipped = 0
     total_files = 0
 
-    for dirpath, dirs, files in os.walk(root, topdown=True, followlinks=False):
-        depth = dirpath[len(root):].count(os.sep)
-        if depth > 8:
-            dirs.clear()
-            continue
+    for dirpath, dirs, files in safe_walk(root, max_depth=8):
         if dirpath.startswith("C:\\Windows") or dirpath.startswith("C:\\Program Files"):
             if dirpath.count(os.sep) > 2:
                 dirs.clear()

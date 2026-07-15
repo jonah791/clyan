@@ -4,7 +4,7 @@ Useful for answering "what are the biggest files eating my disk space?"
 """
 import os
 import time
-from ..utils.scanner_base import ScanResult, BaseScanner
+from ..utils.scanner_base import ScanResult, BaseScanner, safe_walk
 from ..utils.size import format_size
 from ..utils.dirtree import dir_total
 
@@ -38,8 +38,7 @@ class LargeFileScanner(BaseScanner):
 
         large_files: list[tuple[str, int]] = []
 
-        for dirpath, dirs, files in os.walk(self.path, topdown=True, followlinks=False):
-            # Skip protected system dirs at depth > 2
+        for dirpath, dirs, files in safe_walk(self.path, max_depth=20):
             dirpath_norm = os.path.normpath(dirpath)
             if any(dirpath_norm.startswith(r) for r in _skip_roots):
                 if dirpath.count(os.sep) > 2:

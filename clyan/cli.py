@@ -87,6 +87,7 @@ def cmd_scan_duplicates(args: argparse.Namespace) -> None:
                 flat.append({
                     "path": dup["path"],
                     "size": dup["size"],
+                    "size_human": format_size(dup["size"]),
                     "provider": "duplicates",
                     "safety": "safe",
                     "label": f"Duplicate: {os.path.basename(dup['path'])}",
@@ -234,6 +235,7 @@ def _cmd_clean_deep(args: argparse.Namespace) -> None:
 
     # Phase 1: Run all scanners
     all_items = []
+    all_errors = []
     for scanner, label in [
         (DevGarbageScanner(root=root), "developer garbage"),
         (SystemScanner(), "system temp"),
@@ -241,10 +243,16 @@ def _cmd_clean_deep(args: argparse.Namespace) -> None:
     ]:
         try:
             r = scanner.scan()
-            items = r.to_dict().get("items", [])
+            d = r.to_dict()
+            items = d.get("items", [])
             all_items.extend(items)
-            print(f"  ✓ {label}: {len(items)} items", file=sys.stderr)
+            errs = d.get("errors", [])
+            if errs:
+                for e in errs:
+                    all_errors.append(e)
+            print(f"  {'✓' if not errs else '⚠'} {label}: {len(items)} items", file=sys.stderr)
         except Exception as e:
+            all_errors.append(f"{label}: {e}")
             print(f"  ✗ {label}: {e}", file=sys.stderr)
 
     if not all_items:
@@ -318,6 +326,8 @@ def _cmd_clean_deep(args: argparse.Namespace) -> None:
     res["total_predicted_human"] = format_size(total_predicted)
     res["root"] = root
     res["strategy"] = strategy
+    if all_errors:
+        res["scanner_errors"] = all_errors
 
     # Also get disk summary after cleanup
     print(f"  Verifying disk space...", file=sys.stderr)
@@ -335,7 +345,7 @@ def _cmd_clean_dedupe(args: argparse.Namespace, strategy: str) -> None:
     """Deduplicate: scan for duplicates, apply strategy, delete extras."""
     from .scan.duplicates import DuplicateScanner
     print("🔍 Scanning for duplicates...", file=sys.stderr)
-    s = DuplicateScanner(path=args.path or "C:\\")
+    s = DuplicateScanner(path=args.path or os.environ.get("USERPROFILE", "C:\\"))
     result = s.scan()
     d = result.to_dict()
 
@@ -348,24 +358,37 @@ def _cmd_clean_dedupe(args: argparse.Namespace, strategy: str) -> None:
     total_files = sum(g.get("duplicate_count", 0) for g in groups)
     print(f"  Found {len(groups)} duplicate groups, {total_files} files, {format_size(total_savings)} reclaimable", file=sys.stderr)
 
-    # Build items list: keep the choosen copy, delete the rest
+    # Build items list: keep the chosen copy, delete the rest
     to_delete = []
     for group in groups:
-        keep_path = group.get("keep", "")
-        keep_time = group.get("keep_time", 0)
+        all_paths = [(group["keep"], True)]
         for dup in group.get("duplicates", []):
-            if strategy == "keep-newest":
-                # Keep the newest by mtime; keep_path is oldest, so delete everything
+            all_paths.append((dup["path"], False))
+
+        if strategy == "keep-newest":
+            # Find newest by mtime, delete all others
+            all_paths.sort(key=lambda x: os.path.getmtime(x[0]), reverse=True)
+            for path, _ in all_paths[1:]:  # keep paths[0] (newest), delete rest
+                sz = sum(d["size"] for d in group["duplicates"] if d["path"] == path)
+                if sz == 0:
+                    try: sz = os.path.getsize(path)
+                    except: sz = 0
+                to_delete.append({"path": path, "size": sz,
+                                   "safety": "safe", "provider": "duplicates"})
+        elif strategy == "keep-first":
+            # Keep the first (keep = oldest), delete all in duplicates list
+            for dup in group.get("duplicates", []):
                 to_delete.append({"path": dup["path"], "size": dup["size"],
                                    "safety": "safe", "provider": "duplicates"})
-            elif strategy == "keep-first":
-                # Keep the first path (keep_path), delete duplicates
-                to_delete.append({"path": dup["path"], "size": dup["size"],
-                                   "safety": "safe", "provider": "duplicates"})
-            elif strategy == "keep-smallest":
-                # Keep smallest: delete everything but delete from smallest first
-                # For now, same as keep-first — delete all duplicates
-                to_delete.append({"path": dup["path"], "size": dup["size"],
+        elif strategy == "keep-smallest":
+            # Sort by file size, keep smallest, delete rest
+            all_paths.sort(key=lambda x: os.path.getsize(x[0]))
+            for path, _ in all_paths[1:]:
+                sz = sum(d["size"] for d in group["duplicates"] if d["path"] == path)
+                if sz == 0:
+                    try: sz = os.path.getsize(path)
+                    except: sz = 0
+                to_delete.append({"path": path, "size": sz,
                                    "safety": "safe", "provider": "duplicates"})
 
     if not to_delete:
