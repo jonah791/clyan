@@ -338,6 +338,52 @@ _IMPACT_DB: dict[str, tuple[list[str], list[str], str]] = {
         ["flutter", "dart"],
         "medium",
     ),
+
+    # === Windows Installer ===
+    "windows_installer:old_msp_patches": (
+        ["Old Windows update patches deleted — cannot uninstall those specific updates"],
+        ["windows installer"],
+        "low",
+    ),
+    "windows_installer:old_msi_files": (
+        ["Old MSI installers deleted — affected programs may not uninstall properly"],
+        ["windows installer"],
+        "low",
+    ),
+
+    # === DISM Cleanup ===
+    "dism_cleanup:dism_component_cleanup": (
+        ["WinSxS component store cleaned — safe, ~30%% space reduction"],
+        ["windows"],
+        "none",
+    ),
+    "dism_cleanup:dism_reset_base": (
+        ["WinSxS reset base — cannot uninstall current cumulative updates"],
+        ["windows"],
+        "none",
+    ),
+    "dism_cleanup:dism_driver_cleanup": (
+        ["Old driver versions removed — safe, only outdated drivers"],
+        ["windows"],
+        "none",
+    ),
+    "dism_cleanup:dism_delivery_opt": (
+        ["Delivery Optimization cache cleared — safe, auto-rebuilds"],
+        ["windows update"],
+        "none",
+    ),
+
+    # === npm prune ===
+    "npm_prune:npm_old_versions": (
+        ["npm old package versions removed — safe, npm install re-downloads if needed"],
+        ["npm", "node"],
+        "low",
+    ),
+    "npm_prune:npm_cache_overview": (
+        ["npm cache cleared — all packages re-downloaded on next install"],
+        ["npm", "node"],
+        "high",
+    ),
 }
 
 
@@ -426,7 +472,7 @@ def ecosystem_for(provider: str, path: str = "") -> str:
     
     # Provider-based mapping
     _ECOSYSTEM_MAP = {
-        "node": {"npm_cache", "pnpm_cache", "bun_cache", "node_modules",
+        "node": {"npm_cache", "pnpm_cache", "bun_cache", "node_modules", "npm_prune",
                  "node_waste", "build_artifacts", "npm_deep"},
         "python": {"pip_cache", "python", "venv", "uv_cache", "pip_deep"},
         "rust": {"cargo_registry", "target", "rust"},
@@ -436,7 +482,7 @@ def ecosystem_for(provider: str, path: str = "") -> str:
         "browser": {"browser_cache", "browser_deep", "app_cache", "browser"},
         "ide": {"vscode_cache", "vscode_extensions", "jetbrains_cache",
                  "jetbrains_tmp", "ide"},
-        "windows": {"system_temp", "windows_update", "winsxs",
+        "windows": {"windows_installer", "dism_cleanup", "system_temp", "windows_update", "winsxs",
                      "delivery_optimization", "software_distribution",
                      "recycle_bin", "prefetch", "thumbnail_cache",
                      "old_windows", "defender_cache", "wer_reports",
@@ -444,6 +490,7 @@ def ecosystem_for(provider: str, path: str = "") -> str:
                      "windows_system", "system", "win_deep", "driver_store"},
         "ml": {"ml_cache", "docker_images"},
         "build": {"build_artifacts", "build_artifacts_file"},
+        "windows": {"...windows already has full set..."},
     }
     
     for ecosystem, providers in _ECOSYSTEM_MAP.items():

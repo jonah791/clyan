@@ -170,8 +170,42 @@ def _categorize(section: dict) -> str:
     """Determine clyan provider category from LangSecRef."""
     lsr = section.get("lang_sec_ref", "")
     if not lsr:
-        return "app_cache"  # default for uncategorized
+        return _categorize_by_path(section)  # fallback
     return _CATEGORY_MAP.get(lsr, "winapp2")
+
+
+def _categorize_by_path(section: dict) -> str:
+    """Path-based fallback when LangSecRef is absent.
+
+    This helps categorize ~1200 cleaners with no LangSecRef.
+    """
+    # Check detect/detect_file for browser paths
+    detect = section.get("detect", "").lower() + section.get("detect_file", "").lower()
+    if any(b in detect for b in ["chrome", "chromium", "firefox", "mozilla",
+                                 "opera", "edge", "brave", "vivaldi", "safari"]):
+        return "browser_cache"
+
+    # Check FileKey paths
+    for fk in section.get("file_keys", []):
+        path = (fk.get("path", "") or "").lower()
+        if any(b in path for b in [
+            r"\google\chrome", r"\chromium", r"\mozilla\firefox",
+            r"\microsoft\edge", r"\opera software", r"\bravesoftware",
+            r"\vivaldi", r"\waterfox", r"\palemoon",
+        ]):
+            return "browser_cache"
+        if any(b in path for b in [
+            r"\microsoft\windows\caches", r"\local\temp", r"\windows\temp",
+            r"\appdata\locallow", r"\microsoft\windows\wer",
+        ]):
+            return "windows_system"
+        if any(b in path for b in [
+            r"\appdata\local\npm", r"\appdata\roaming\npm",
+            r"\appdata\local\pip", r"\appdata\local\cargo",
+        ]):
+            return "dev_garbage"
+
+    return "app_cache"  # still default
 
 
 def parse_winapp2_ini(content: str) -> list[dict]:
