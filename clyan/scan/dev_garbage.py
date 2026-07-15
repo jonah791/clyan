@@ -1,7 +1,7 @@
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from ..utils.scanner_base import ScanResult, BaseScanner
+from ..utils.scanner_base import ScanResult, BaseScanner, safe_walk
 from ..utils.dirtree import reset_dir_total_cache
 from ..utils.size import format_size
 from ..core.config import DangerLevel, is_protected
@@ -17,7 +17,14 @@ register_pattern("python_cache", ["__pycache__", ".venv", "venv", ".env", "env",
                                    ".mypy_cache", ".pytest_cache", ".ruff_cache", ".hypothesis"])
 register_pattern("build_artifacts", [".next", "dist", "build", ".turbo", ".cache",
                                       "out", ".output", ".nuxt", ".svelte-kit",
-                                      ".expo", "coverage", ".parcel-cache"])
+                                      ".expo", "coverage", ".parcel-cache",
+                                      # dustoff additions:
+                                      ".angular", ".vite", ".nx", ".swc",
+                                      ".nyc_output", ".jest", "storybook-static",
+                                      "gatsby_cache", ".docusaurus", ".serverless",
+                                      "deno_cache", ".rpt2_cache", ".esbuild",
+                                      ".rollup.cache", ".npm", ".pnpm-store",
+                                      ".eslintcache", ".stylelintcache"])
 register_pattern("gradle", [".gradle"])
 register_pattern("flutter", [".dart_tool", ".fvm"])
 
@@ -59,6 +66,13 @@ def _safety_for(dir_name: str) -> DangerLevel:
     return DangerLevel.for_dirname(dir_name)
 
 
+# Skip roots for file-level artifact scan (same as in fast_scanner)
+_SKIP_ROOTS = {
+    "C:\\Windows", "C:\\Program Files", "C:\\Program Files (x86)",
+    "C:\\ProgramData", "C:\\Recovery", "C:\\Boot",
+}
+
+
 class DevGarbageScanner(BaseScanner):
     def __init__(self, root: str = None):
         self.root = root or os.environ.get("USERPROFILE", "C:\\")
@@ -98,6 +112,43 @@ class DevGarbageScanner(BaseScanner):
                         safety=_safety_for(dir_name),
                         extra={"type": dir_name, "project": entry.get("project", "")},
                     ))
+
+            # File-level artifact detection (dustoff-inspired)
+            # Look for known build artifact files within project trees
+            _FILE_ARTIFACTS = {
+                ".tsbuildinfo": "typescript",
+                "tsconfig.tsbuildinfo": "typescript",
+                "npm-debug.log": "npm",
+                "yarn-error.log": "yarn",
+                "yarn-debug.log": "yarn",
+                "pnpm-debug.log": "pnpm",
+                "lerna-debug.log": "lerna",
+            }
+            # Only scan up to depth 4 to keep it fast
+            for dirpath, dirs, files in safe_walk(self.root, max_depth=4):
+                if any(dirpath.startswith(p) for p in _SKIP_ROOTS):
+                    dirs.clear()
+                    continue
+                for f in files:
+                    f_lower = f.lower()
+                    matched_type = None
+                    for pattern, ptype in _FILE_ARTIFACTS.items():
+                        if f_lower == pattern or f_lower.endswith(pattern):
+                            matched_type = ptype
+                            break
+                    if matched_type:
+                        fp = os.path.join(dirpath, f)
+                        try:
+                            sz = os.path.getsize(fp)
+                            if sz > 0:
+                                all_items.append(CacheItem(
+                                    path=fp, size=sz, provider="build_artifacts_file",
+                                    label=f"Build artifact: {f} ({os.path.basename(dirpath)[:20]})",
+                                    safety=DangerLevel.SAFE,
+                                    extra={"type": "file_artifact", "artifact_type": matched_type},
+                                ))
+                        except Exception:
+                            pass
 
             # Add provider-based results (system-wide caches)
             for pname, items in provider_results.items():
