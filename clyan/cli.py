@@ -631,6 +631,13 @@ def build_parser() -> argparse.ArgumentParser:
     ac.add_argument("path", nargs="?", default="C:\\", help="root path")
     ac.add_argument("--target-gb", type=float, default=0, help="stop after N GB")
 
+    # ── Reclaim subcommand ──
+    rc = sub.add_parser("reclaim", help="full reclaim plan: scan → aggregate → phases → execute")
+    rc.add_argument("path", nargs="?", default="C:\", help="root path")
+    rc.add_argument("--phase", help="execute only this cost phase (none/low/medium/high)")
+    rc.add_argument("--yes", action="store_true", help="skip confirmation")
+    rc.add_argument("--dry-run", action="store_true", help="show plan without executing")
+
     # ── Import subcommand ──
     imp_p = sub.add_parser("import", help="import cleaner definitions (winapp2)")
     imp_sub = imp_p.add_subparsers(dest="import_type")
@@ -775,6 +782,28 @@ def main() -> None:
             parser.print_help()
     elif args.command == "clean":
         cmd_clean(args)
+    elif args.command == "reclaim":
+        from .reclaim import reclaim, execute_phase
+        plan = reclaim(args.path)
+        if args.dry_run or not args.phase:
+            # Show plan
+            print(f"📋  Reclaim Plan for {args.path}")
+            print(f"   Total: {plan['total_size_human']} ({plan['total_items']} items)")
+            for p in plan['phases']:
+                icon = {"none":"🟢","low":"🟡","medium":"🟠","high":"🔴","unknown":"⚫"}.get(p['cost'],"❓")
+                eco = ', '.join([f"{e['ecosystem']}: {e['size_human']}" for e in p.get('ecosystem_breakdown',[])])
+                print(f"   {icon}  Phase {p['cost']}: {p['total_size_human']} ({p['item_count']} items) — {eco}")
+            print(f"
+{plan['recommendation']}")
+            print("---")
+        if args.phase:
+            result = execute_phase(plan, args.phase, fast=True)
+            icon_done = "✅" if result.get('fail_count',0) == 0 else "⚠️"
+            print(f"{icon_done}  Phase {args.phase}: {result.get('success_count',0)} cleared, {result.get('fail_count',0)} failed")
+            print(f"   Freed: {result.get('total_freed_human','0 B')}")
+            print(f"   Actual: {result.get('actual_freed_human','?')}")
+        # Always output full JSON
+        print(json.dumps(plan if not args.phase else result, ensure_ascii=False, indent=2))
     elif args.command == "history":
         cmd_history(args)
     elif args.command == "undo":

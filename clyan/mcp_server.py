@@ -381,6 +381,18 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent]:
             path = arguments.get("path", "C:\\")
             return _ok(check_pulse(path))
 
+        # ── reclaim ──
+        elif name == "reclaim":
+            from .reclaim import reclaim as _reclaim, execute_phase as _execute_phase
+            path = arguments.get("path", "C:\")
+            phase = arguments.get("phase", "")
+            dry_run = arguments.get("dry_run", False)
+            plan = _reclaim(path)
+            if dry_run or not phase:
+                return _ok(plan)
+            result = _execute_phase(plan, phase)
+            return _ok(result)
+
         # ── auto_clear_safe ──
         elif name == "auto_clear_safe":
             path = arguments.get("path", "C:\\")
