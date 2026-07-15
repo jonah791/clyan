@@ -564,7 +564,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp_files = sp_sub.add_parser("files", help="find largest individual files")
     sp_files.add_argument("path", nargs="?", default="C:\\",
-                          help="root path (default: C:\)")
+                          help="root path (default: C:\\\)")
     sp_files.add_argument("--min-size", type=int, default=50,
                           help="minimum file size in MB (default: 50)")
     sp_files.add_argument("--top", type=int, default=50,
@@ -620,7 +620,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp_sch.add_argument("--remove", action="store_true",
                         help="remove the scheduled cleanup task")
     sp_sch.add_argument("--path", default="C:\\",
-                        help="drive or path to clean (default: C:\)")
+                        help="drive or path to clean (default: C:\\\)")
     sp_sch.add_argument("--time", default="03:00",
                         help="time to run, e.g. 03:00 (default: 3 AM)")
 
@@ -633,7 +633,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # ── Reclaim subcommand ──
     rc = sub.add_parser("reclaim", help="full reclaim plan: scan → aggregate → phases → execute")
-    rc.add_argument("path", nargs="?", default="C:\", help="root path")
+    rc.add_argument("path", nargs="?", default="C:\\", help="root path")
     rc.add_argument("--phase", help="execute only this cost phase (none/low/medium/high)")
     rc.add_argument("--yes", action="store_true", help="skip confirmation")
     rc.add_argument("--dry-run", action="store_true", help="show plan without executing")
@@ -793,8 +793,9 @@ def main() -> None:
                 icon = {"none":"🟢","low":"🟡","medium":"🟠","high":"🔴","unknown":"⚫"}.get(p['cost'],"❓")
                 eco = ', '.join([f"{e['ecosystem']}: {e['size_human']}" for e in p.get('ecosystem_breakdown',[])])
                 print(f"   {icon}  Phase {p['cost']}: {p['total_size_human']} ({p['item_count']} items) — {eco}")
-            print(f"
-{plan['recommendation']}")
+            rec = plan['recommendation']
+            rec = plan["recommendation"]
+            print(f"\n{rec}")
             print("---")
         if args.phase:
             result = execute_phase(plan, args.phase, fast=True)
