@@ -7,10 +7,10 @@
 
 ## 功能
 
-- **45+ 缓存检测器**：npm / pip / cargo / Go / Docker / IDE 缓存 / 浏览器缓存 / Windows 系统缓存 / Maven / WER / 开发垃圾
+- **50+ 缓存检测器**：npm / pip / cargo / Go / Docker / IDE 缓存 / 浏览器缓存 / Windows 系统缓存 / Maven / WER / 开发垃圾 + Delivery Optimization / SoftwareDistribution / Store / Teams / OneDrive / Defender / Xbox 等 Windows 扩展
 - **重复文件检测 + 清理**：三步检测（按大小分组 → BLAKE2b 部分哈希 → 全量哈希），支持 `--dedupe keep-newest/first/smallest` 策略
 - **大文件发现**：`scan files C:\ --min-size 100MB --top 20` 找到硬盘上最大的单个文件
-- **Windows 深度清理**：WinSxS 组件存储、Windows.old 旧系统、DriverStore 驱动备份、Delivery Optimization 缓存、WER 错误报告、DISM 清理
+- **Windows 深度清理**：WinSxS 组件存储、Windows.old 旧系统、DriverStore 驱动备份、Delivery Optimization 缓存、WER 错误报告、DISM 清理、Store / Teams / OneDrive / Defender / Xbox 专项缓存
 - **三级安全体系**：Safe（安全可删）/ Caution（谨慎，可能需重建）/ Unsafe（不可删，含配置/凭据），配合保护路径系统和豁免规则
 - **磁盘概览 + 趋势**：`clyan scan disk C:\ --depth 2` — 总容量/已用/剩余 + 层次化目录树 + 分类占用 + `--trend` 历史变化
 - **垃圾置信度评分**：每个可清理项自动计算 0–100% 置信度（6 信号：安全级别 + 修改时间 + 工具是否卸载 + 目录名 + 孤儿标记 + **重建成本**），附中文原因说明
@@ -24,20 +24,20 @@
 - **一键深清**：`clean --deep` 完整周期——全量扫描 → 评分 → 过滤 → 执行 → 验证 → 报告
 - **定时清理**：`schedule --create` 注册 Windows 计划任务，每周自动运行
 - **MCP 服务器**：AI agent 可通过 Model Context Protocol 直接调用 16 个工具（无需 CLI subprocess）
-- **多级并行加速**：Provider 级 + Scanner 级双级并行，配合 LRU 目录尺寸缓存
-- **并行清理加速**：Parallel `shutil.rmtree` 批量回收站 + 原生 Windows 删除、`is_protected` LRU 缓存、大小优先排序
-- **Windows 原生删除**：≥500MB 大目录自动用 `rd /s /q`（深树提速 1.3x）；散落小目录用并行 `shutil.rmtree`（提速 3.5x）
-- **全局包管理器保护**：`%APPDATA%\npm` 等目录受保护，不被误清理
+- **AI 全权决策**：执行层不做任何内置策略判断 — 不设 `is_protected` 硬拦截（改为 `protected_warned` 输出）、不设阈值（`_FAST_THRESHOLD`/`_NATIVE_DIR_THRESHOLD` 已删除），每个项目可选 `method`（`trash`/`direct`/`native`/`auto`），AI 自己决定删什么、怎么删
+- **并行加速**：Provider 级 + Scanner 级双级并行，LRU 目录尺寸缓存
+- **Windows 删除方法**：`rd /s /q`（深树） / `del /f /q`（大文件） / `shutil.rmtree`（散落目录） / `send2trash`（回收站），由 AI 逐项指定
+- **保护路径警告**：检测到保护路径不再强制拦截，通过 `protected_warned` 字段告知 AI，AI 自行判断
 
 ## 性能
 
-| 扫描范围 | 规模 | v0.1.0 | **v0.9.0** | 提速 |
+| 扫描范围 | 规模 | v0.1.0 | **v0.10.0** | 提速 |
 |---------|------|--------|-----------|------|
-| 用户目录 `C:\Users\xxx` | ~40 GB | ~23s | **~2.4s** | **~90%** |
-| 全盘 C: 快速体检 | ~335 GB | ~未测量 | **~29s** | — |
+| 用户目录 `C:\Users\xxx` | ~40 GB | ~23s | **~0.2s** | **~99%** |
+| 全盘 C: 快速体检 | ~335 GB | — | **~29s** | — |
 | 全盘 C: 目录树 (depth=2) | ~335 GB | — | **~22s** | — |
-| 清理 200 散落目录（2K 文件） | 并行 rmtree | ~0.23s | **~0.06s** | **3.5x** |
-| 清理 10K 深树文件 | 原生 rd /s /q | ~1.6s | **~1.3s** | **1.3x** |
+| 扫描 200 散落目录 | 8 provider 并行 | — | **~2.3s** | — |
+| 扫描新 provider (8个) | Windows 扩展| — | **~0.03s** | — |
 
 ## 快速开始
 
@@ -194,19 +194,19 @@ clyan mcp
 | 工具 | 功能 |
 |------|------|
 | `scan_quick` | 全量扫描（并行所有分类） |
-| `scan_dev_garbage` | 开发者缓存/垃圾 |
+| `scan_dev_garbage` | 开发者缓存/垃圾 + 附加信号（age / rebuild_cost / provider） |
 | `scan_browsers` | 浏览器缓存 |
-| `scan_system` | Windows 临时文件 + Temp 分解 |
+| `scan_system` | Windows 临时文件 + Temp 分解 + 孤儿目录 |
 | `scan_duplicates` | 重复文件检测 |
 | `scan_packages` | 包管理器环境检测 |
-| `scan_disk` | 磁盘概览：容量 + 目录树 + 可回收垃圾 |
-| `get_confidence_summary` | 给任意 items 列表附加置信度分数 |
-| `clean_propose` | 阶段 1：提议清理（返回 action_id + 影响分析） |
-| `clean_confirm` | 阶段 2：确认执行（按 action_id 执行） |
+| `scan_disk` | 磁盘概览：容量 + 目录树 + 可回收垃圾 + `--trend` |
+| `get_confidence_summary` | 给任意 items 列表附加置信度评分 + 影响预警 |
+| `clean_propose` | 阶段 1：提议清理（返回 action_id + 影响分析 + 置信度分布） |
+| `clean_confirm` | 阶段 2：按 action_id 执行（返回 actual_freed + delta + protected_warned） |
 | `clean_auto` | 一键自主清理：scan → 评分 → 过滤 → 执行 |
 | `clean_deep` | 🆕 完整清理周期：全量扫描→评分→过滤→执行→验证 |
-| `clean_preview` | 预览（检查保护路径） |
-| `clean_execute` | ⚠ 立即执行删除 |
+| `clean_preview` | 预览检查（保护路径警告、已存在检查） |
+| `clean_execute` | ⚠ 执行删除（AI 指定每项 method，返回 actual_freed + protected_warned） |
 | `history` | 清理历史 |
 | `undo` | 撤销清理 |
 
@@ -239,6 +239,7 @@ clyan mcp
 
 | 版本 | 亮点 |
 |------|------|
+| **v0.10.0** | 执行层精简（AI 全权决策）、8 个新 Windows provider（Delivery Opt / SoftwareDistribution / Store / Teams / OneDrive / Defender / Xbox / 旧备份）、删硬编码阈值和 `is_protected` 拦截 |
 | **v0.9.0** | 大文件发现 `scan files`、重复文件清理 `--dedupe`、应用影响预警 `warning` 字段、confidence 下限修正 |
 | **v0.8.0** | 完整清理周期：验证+报告（actual_freed/delta）、磁盘趋势 --trend、clean --deep、schedule 定时清理、MCP clean_deep（16 tools） |
 | **v0.7.0** | 置信度引擎重构（6 信号 + 重建成本）、广度扩展（Maven/WER/Search index/JetBrains Toolbox）、Temp 递归深度、preview realpath + execute winerror + UNC 保护 |
@@ -248,6 +249,25 @@ clyan mcp
 | **v0.3.0** | 清理性能优化：原生 rd/s/q（1.3x）、并行 rmtree（3.5x）、批量回收站、is_protected LRU 缓存 |
 | **v0.2.0** | 扫描性能大提速（~90%）：Provider 并行化、目录尺寸缓存、WinSxS 免遍历、单次文件系统遍历 |
 | **v0.1.0** | 初始版本：26+ 缓存检测器、重复文件检测、Windows 深度清理、MCP 服务器 |
+
+## 设计哲学
+
+Clyan 的核心原则：**工具做"全"和"准"，AI 做"判断"和"决策"**
+
+```
+扫描层 → 全面发现 + 全量信号（不过滤、不设阈值）
+执行层 → 安全执行 + 报告副作用（不硬拦截、不替 AI 选策略）
+AI     → 分析信号 + 做判断 + 选删除方法（trash/direct/native）
+```
+
+Clyan 不做的事：
+- 不替 AI 判断什么该删什么不该删（删了 `protected_warned` 硬拦截）
+- 不按阈值决定用什么删除方法（删了 `_FAST_THRESHOLD`）
+- 不给 AI "加工"过的数据（全量原始信号返回）
+
+对 AI agent 来说，Clyan 是**磁盘的眼和手**：
+- **眼**：50+ 扫描器覆盖所有常见缓存，每项附 size / age / rebuild_cost / provider 等完整信号
+- **手**：接收 AI 指定的 `path` + `method`，安全执行，返回 `actual_freed` / `protected_warned` / `errors`
 
 ## 许可证
 
