@@ -5,6 +5,7 @@ import ctypes.wintypes
 from ..utils.size import format_size
 from ..utils.dirtree import dir_total
 from ..utils.scanner_base import ScanResult
+from ..reflex import _update_pulse_after_scan
 
 
 _SKIP = {
@@ -149,4 +150,10 @@ def scan_disk(path: str = "C:\\", depth: int = 2, top_n: int = 15) -> ScanResult
     }
     result.total_size = used
     result.scan_time_ms = (time.time() - start) * 1000
+    _update_pulse_after_scan(path, {"items": [], **result.extra})
     return result
+
+
+def scan_disk(path: str = "C:\\", depth: int = 2) -> ScanResult:
+    """Disk summary: total/used/free + directory tree + reclaimable estimate."""
+    return _scan_disk(path=path, depth=depth)

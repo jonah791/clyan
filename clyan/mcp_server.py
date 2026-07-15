@@ -354,6 +354,17 @@ async def handle_list_tools() -> list[Tool]:
 @server.call_tool()
 async def handle_call_tool(name: str, arguments: dict) -> list[TextContent]:
     try:
+        # ── check_disk_pulse ──
+        if name == "check_disk_pulse":
+            path = arguments.get("path", "C:\\")
+            return _ok(check_pulse(path))
+
+        # ── auto_clear_safe ──
+        elif name == "auto_clear_safe":
+            path = arguments.get("path", "C:\\")
+            target_gb = arguments.get("target_gb", 0)
+            return _ok(auto_clear_safe(path=path, target_gb=target_gb))
+
         # ── scan_quick ──
         if name == "scan_quick":
             path = arguments.get("path", "C:\\")

@@ -624,6 +624,13 @@ def build_parser() -> argparse.ArgumentParser:
     sp_sch.add_argument("--time", default="03:00",
                         help="time to run, e.g. 03:00 (default: 3 AM)")
 
+    # ── Reflex subcommands ──
+    rp = sub.add_parser("pulse", help="[REFLEX] instant disk health check")
+    rp.add_argument("path", nargs="?", default="C:\\", help="drive to check")
+    ac = sub.add_parser("auto-clear", help="[REFLEX] auto-clear cost=none items")
+    ac.add_argument("path", nargs="?", default="C:\\", help="root path")
+    ac.add_argument("--target-gb", type=float, default=0, help="stop after N GB")
+
     # ── Import subcommand ──
     imp_p = sub.add_parser("import", help="import cleaner definitions (winapp2)")
     imp_sub = imp_p.add_subparsers(dest="import_type")
@@ -772,6 +779,14 @@ def main() -> None:
         cmd_history(args)
     elif args.command == "undo":
         cmd_undo(args)
+    elif args.command == "pulse":
+        from .reflex import check_pulse
+        result = check_pulse(args.path)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    elif args.command == "auto-clear":
+        from .reflex import auto_clear_safe
+        result = auto_clear_safe(path=args.path, target_gb=args.target_gb)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
     elif args.command == "mcp":
         cmd_mcp(args)
     elif args.command == "schedule":
