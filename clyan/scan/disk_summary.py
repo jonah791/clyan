@@ -51,10 +51,7 @@ def _quick_size(path: str) -> int:
 
 
 def _walk_dirs(path: str, depth: int, top_n: int = 15, is_top: bool = True) -> list[dict]:
-    """Recursive directory tree.
-
-    Accurate ``dir_total`` for levels we display, ``_quick_size`` for deeper.
-    """
+    """Directory tree — bounded-depth dir_total for speed."""
     items = []
     try:
         with os.scandir(path) as it:
@@ -64,11 +61,10 @@ def _walk_dirs(path: str, depth: int, top_n: int = 15, is_top: bool = True) -> l
                         continue
                     if e.name in _SKIP:
                         continue
-                    # Accurate for root + first recursion level; quick for deeper
-                    if is_top or depth >= 1:
-                        sz = dir_total(e.path)
-                    else:
-                        sz = _quick_size(e.path)
+                    # Top level: bounded depth (3) for fast accurate sizing
+                    # Deeper levels: use remaining depth for full accuracy
+                    max_walk = 3 if is_top else max(depth + 1, 0)
+                    sz = dir_total(e.path, max_depth=max_walk)
                     if sz == 0:
                         continue
                     node = {
