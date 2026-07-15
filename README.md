@@ -7,12 +7,15 @@
 
 ## 功能
 
-- **Winapp2.ini 导入**：兼容 CCleaner/BleachBit 的 3700+ 社区维护清理器定义，`clyan import winapp2 winapp2.ini` 一键导入，自动分类到 browser_cache / app_cache 生态组
-- **50+ 缓存检测器**：npm / pip / cargo / Go / Docker / IDE 缓存 / 浏览器缓存 / Windows 系统缓存 / Maven / WER / 开发垃圾 + Delivery Optimization / SoftwareDistribution / Store / Teams / OneDrive / Defender / Xbox 等 Windows 扩展
+- **53+ 缓存检测器**：300+ 内置规则 + 3700+ Winapp2 社区维护清理器全面覆盖
+- **npm 缓存深度分解**：`npm_deep` 拆解 `_npx/`（1.4GB 一次性二进制，安全可删）、`_cacache/`（6.2GB 按年份分组）、`npm_global/`（3.8GB 全局包列表）；`npm_prune` 集成 npm cache ls（3882 entries + 未使用天数信号）
+- **pip 缓存年龄分组**：`pip_deep` 按 6 个时间区间统计 600+ wheel 文件，附带 old_ratio 信号
+- **DISM 深度集成**：WinSxS 组件清理 / StartComponentCleanup / ResetBase / pnputil 旧驱动一一对应 exact 命令，AI 可按需调用
+- **Winapp2.ini 导入**：兼容 CCleaner/BleachBit 的 3700+ 社区维护清理器定义，`clyan import winapp2 winapp2.ini` 一键导入，自动分类到 browser_cache / app_cache / dev_garbage / windows_system 生态组（含路径回退智能分类）
 - **重复文件检测 + 清理**：三步检测（按大小分组 → **4KB 部分哈希** → 全量哈希），支持并行目录遍历 + inode 去重（跳过硬链接）+ match-and-stop 跳过构件目录，`--dedupe keep-newest/first/smallest` 策略
 - **大文件发现**：`scan files C:\ --min-size 100MB --top 20` 找到硬盘上最大的单个文件
 - **构建废物检测**：50+ 构件目录覆盖（node_modules / .next / .angular / .vite / .nx / .swc / .turbo / .serverless 等），外加文件级产物（.tsbuildinfo / 构建日志 / 堆快照），match-and-stop 避免递归遍历
-- **Windows 深度清理**：WinSxS 组件存储、Windows.old 旧系统、DriverStore 驱动备份、Delivery Optimization 缓存、WER 错误报告、DISM 清理、Store / Teams / OneDrive / Defender / Xbox 专项缓存
+- **Windows 深度清理**：WinSxS 组件存储 + DISM 清理集成（StartComponentCleanup/ResetBase）、Windows.old 旧系统、Windows Installer 缓存（5.6 GB 按旧补丁/旧安装源/大文件三级分类）、DriverStore 旧驱动（pnputil 命令级建议）、Delivery Optimization 缓存、WER 错误报告、Store / Teams / OneDrive / Defender / Xbox 专项缓存
 - **三级安全体系**：Safe（安全可删）/ Caution（谨慎，可能需重建）/ Unsafe（不可删，含配置/凭据），配合保护路径系统和豁免规则
 - **磁盘概览 + 趋势**：`clyan scan disk C:\ --depth 2` — 总容量/已用/剩余 + 层次化目录树 + 分类占用 + `--trend` 历史变化
 - **垃圾置信度评分**：每个可清理项自动计算 0–100% 置信度（6 信号：安全级别 + 修改时间 + 工具是否卸载 + 目录名 + 孤儿标记 + **重建成本**），附中文原因说明
@@ -223,7 +226,7 @@ clyan mcp
 
 | 工具 | 功能 |
 |------|------|
-| `scan_quick` | 全量扫描（45 provider 并行） |
+| `scan_quick` | 全量扫描（53 provider 并行） |
 | `scan_dev_garbage` | 开发者缓存/垃圾 + Winapp2 社区清理器 + 附加信号 |
 | `scan_browsers` | 浏览器缓存 |
 | `scan_system` | Windows 临时文件 + Temp 分解 + 孤儿目录 |
@@ -272,6 +275,8 @@ clyan mcp
 
 | 版本 | 亮点 |
 |------|------|
+| **v0.19.0** | 四方向扩展：Windows Installer 缓存（5.6 GB 分类检测）、DISM 深度集成（命令级）、npm _cacache 主动裁剪（3882 entries）、Winapp2 路径回退分类 ~1200 条；provider 50→53 |
+| **v0.18.0** | npm/pip 缓存深度裁剪：npm_deep 三组件分解（_npx/_cacache/npm_global）、pip_deep 按年龄分组（6 区间） |
 | **v0.17.0** | Winapp2.ini 导入引擎（3377 社区清理器、45 provider、86 GB 新增可发现空间）、INI 解析器 + 变量展开 + 注册表检测 + 动态 provider |
 | **v0.16.0** | 历史准确率 `historical_accuracy` + `clean_plan` MCP 工具（按 recovery_cost 排序执行计划） |
 | **v0.15.0** | 信任系统接入 `is_protected` + `system_health`/`get_provider_feedback` MCP（18→19 工具） |
@@ -304,7 +309,7 @@ Clyan 不做的事：
 - 不给 AI "加工"过的数据（全量原始信号返回）
 
 对 AI agent 来说，Clyan 是**磁盘的眼和手**：
-- **眼**：50+ 内置检测器 + 3700+ Winapp2 社区清理器，每项附 size / age / rebuild_cost / ecosystem / would_break / historical_accuracy 等完整信号
+- **眼**：53+ 内置检测器 + 3700+ Winapp2 社区清理器，每项附 size / age / rebuild_cost / ecosystem / would_break / historical_accuracy 等完整信号
 - **手**：接收 AI 指定的 `path` + `method`，安全执行，返回 `actual_freed` / `protected_warned` / `errors` + 历史准确率反馈
 
 ## 许可证
