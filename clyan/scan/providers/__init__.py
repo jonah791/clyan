@@ -59,8 +59,10 @@ def _attach_signals(items: list[CacheItem]) -> None:
             item.extra["tool_installed"] = cache_type_installed(item.provider)
 
 
-def detect_all(root: str) -> dict[str, list[CacheItem]]:
-    results = {}
+def detect_all(root: str) -> tuple[dict[str, list[CacheItem]], list[str]]:
+    """Run all registered providers, return (results, errors)."""
+    results: dict[str, list[CacheItem]] = {}
+    errors: list[str] = []
     with ThreadPoolExecutor(max_workers=min(8, len(_registry) or 1)) as pool:
         futures = {pool.submit(fn, root): name for name, fn in _registry.items()}
         for f in as_completed(futures):
@@ -70,9 +72,11 @@ def detect_all(root: str) -> dict[str, list[CacheItem]]:
                 if items:
                     results[name] = items
                     _attach_signals(items)
-            except Exception:
+            except Exception as e:
+                err_msg = f"provider '{name}' failed: {e}"
+                errors.append(err_msg)
                 results[name] = []
-    return results
+    return results, errors
 
 
 def get_registered_providers() -> list[str]:

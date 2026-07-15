@@ -73,71 +73,75 @@ class DevGarbageScanner(BaseScanner):
             result.scan_time_ms = (time.time() - start) * 1000
             return result
 
-        # Run pattern walk and provider scans in parallel (both I/O-bound, independent)
-        matched: dict = {}
-        provider_items: dict = {}
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            f1 = pool.submit(fast_scan, self.root, 6)
-            f2 = pool.submit(providers.detect_all, self.root)
-            matched = f1.result()
-            provider_items = f2.result()
+        try:
+            # Run pattern walk and provider scans in parallel (both I/O-bound, independent)
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                f1 = pool.submit(fast_scan, self.root, 6)
+                f2 = pool.submit(providers.detect_all, self.root)
+                provider_results, provider_errors = f2.result()
+                matched = f1.result()
 
-        all_items: list[CacheItem] = []
+            for err in provider_errors:
+                result.errors.append(err)
 
-        # Convert fast scan results
-        for key, entries in matched.items():
-            for entry in entries:
-                dir_name = entry.get("dir_name", "")
-                all_items.append(CacheItem(
-                    path=entry["path"],
-                    size=entry["size"],
-                    provider=_match_provider(dir_name),
-                    label=f"{dir_name} ({entry.get('project', '')})",
-                    safety=_safety_for(dir_name),
-                    extra={"type": dir_name, "project": entry.get("project", "")},
-                ))
+            all_items: list[CacheItem] = []
 
-        # Add provider-based results (system-wide caches)
-        for pname, items in provider_items.items():
-            all_items.extend(items)
+            # Convert fast scan results
+            for key, entries in matched.items():
+                for entry in entries:
+                    dir_name = entry.get("dir_name", "")
+                    all_items.append(CacheItem(
+                        path=entry["path"],
+                        size=entry["size"],
+                        provider=_match_provider(dir_name),
+                        label=f"{dir_name} ({entry.get('project', '')})",
+                        safety=_safety_for(dir_name),
+                        extra={"type": dir_name, "project": entry.get("project", "")},
+                    ))
 
-        # Post-process: override safety for items under protected paths
-        for item in all_items:
-            if is_protected(item.path):
-                item.safety = DangerLevel.UNSAFE
+            # Add provider-based results (system-wide caches)
+            for pname, items in provider_results.items():
+                all_items.extend(items)
 
-        # Dedup by path (keep largest size for duplicates)
-        seen: dict[str, CacheItem] = {}
-        for item in all_items:
-            if item.path not in seen or item.size > seen[item.path].size:
-                seen[item.path] = item
-        all_items = sorted(seen.values(), key=lambda x: x.size, reverse=True)
+            # Post-process: override safety for items under protected paths
+            for item in all_items:
+                if is_protected(item.path):
+                    item.safety = DangerLevel.UNSAFE
 
-        # Build per-provider summaries
-        by_provider: dict[str, list[CacheItem]] = {}
-        for item in all_items:
-            p = item.provider
-            if p not in by_provider:
-                by_provider[p] = []
-            by_provider[p].append(item)
+            # Dedup by path (keep largest size for duplicates)
+            seen: dict[str, CacheItem] = {}
+            for item in all_items:
+                if item.path not in seen or item.size > seen[item.path].size:
+                    seen[item.path] = item
+            all_items = sorted(seen.values(), key=lambda x: x.size, reverse=True)
 
-        provider_summaries = []
-        for pname, items in sorted(by_provider.items(), key=lambda x: -sum(i.size for i in x[1])):
-            total = sum(i.size for i in items)
-            provider_summaries.append({
-                "provider": pname,
-                "total_size": total,
-                "total_size_human": format_size(total),
-                "item_count": len(items),
-            })
+            # Build per-provider summaries
+            by_provider: dict[str, list[CacheItem]] = {}
+            for item in all_items:
+                p = item.provider
+                if p not in by_provider:
+                    by_provider[p] = []
+                by_provider[p].append(item)
 
-        result.total_size = sum(i.size for i in all_items)
-        result.item_count = len(all_items)
-        result.items = [i.to_dict() for i in all_items]
-        result.extra = {
-            "provider_summaries": provider_summaries,
-            "providers_scanned": providers.get_registered_providers(),
-        }
+            provider_summaries = []
+            for pname, items in sorted(by_provider.items(), key=lambda x: -sum(i.size for i in x[1])):
+                total = sum(i.size for i in items)
+                provider_summaries.append({
+                    "provider": pname,
+                    "total_size": total,
+                    "total_size_human": format_size(total),
+                    "item_count": len(items),
+                })
+
+            result.total_size = sum(i.size for i in all_items)
+            result.item_count = len(all_items)
+            result.items = [i.to_dict() for i in all_items]
+            result.extra = {
+                "provider_summaries": provider_summaries,
+                "providers_scanned": providers.get_registered_providers(),
+            }
+        except Exception as e:
+            result.errors.append(f"scan failed: {e}")
         result.scan_time_ms = (time.time() - start) * 1000
         return result
 

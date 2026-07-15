@@ -6,6 +6,24 @@ from .staleness import get_age_days, cache_type_installed
 from .confidence import compute_and_attach
 
 
+def safe_walk(root: str, max_depth: int = 20, skip_permission_errors: bool = True):
+    """Generator wrapper around os.walk that tolerates permission errors.
+
+    Skips directories that raise PermissionError and yields results from
+    accessible subtrees.  Usage identical to os.walk.
+    """
+    import os
+    for dirpath, dirs, files in os.walk(root, topdown=True, followlinks=False):
+        # Check depth
+        rel = os.path.relpath(dirpath, root)
+        if rel != ".":
+            depth = rel.count(os.sep) + 1
+            if depth > max_depth:
+                dirs.clear()
+                continue
+        yield dirpath, dirs, files
+
+
 def _enrich(item: dict) -> None:
     """Attach age_days and tool_installed signals to an item dict."""
     if "age_days" not in item:

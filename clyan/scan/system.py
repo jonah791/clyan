@@ -128,31 +128,36 @@ class SystemScanner(BaseScanner):
         result = ScanResult()
         start = time.time()
 
-        temp_items = _get_windows_temp()
-        for item in temp_items:
-            result.items.append(item.to_dict())
-            result.total_size += item.size
-
-        # Deep Temp breakdown: largest subdirs inside Temp
-        if self.deep_temp:
-            for item in _scan_temp_breakdown(depth=self.temp_depth):
+        try:
+            temp_items = _get_windows_temp()
+            for item in temp_items:
                 result.items.append(item.to_dict())
                 result.total_size += item.size
 
-        try:
-            rb_size = _get_recycle_bin_size()
-            if rb_size > 0:
-                item = CacheItem(
-                    path="shell:RecycleBinFolder",
-                    size=rb_size, provider="system",
-                    label="Recycle Bin",
-                    safety=DangerLevel.SAFE,
-                    extra={"type": "recycle_bin"},
-                )
-                result.items.append(item.to_dict())
-                result.total_size += rb_size
-        except Exception:
-            pass
+            if self.deep_temp:
+                try:
+                    for item in _scan_temp_breakdown(depth=self.temp_depth):
+                        result.items.append(item.to_dict())
+                        result.total_size += item.size
+                except Exception as e:
+                    result.errors.append(f"temp deep scan: {e}")
+
+            try:
+                rb_size = _get_recycle_bin_size()
+                if rb_size > 0:
+                    item = CacheItem(
+                        path="shell:RecycleBinFolder",
+                        size=rb_size, provider="system",
+                        label="Recycle Bin",
+                        safety=DangerLevel.SAFE,
+                        extra={"type": "recycle_bin"},
+                    )
+                    result.items.append(item.to_dict())
+                    result.total_size += rb_size
+            except Exception as e:
+                result.errors.append(f"recycle bin: {e}")
+        except Exception as e:
+            result.errors.append(f"system scan: {e}")
 
         result.items.sort(key=lambda x: x["size"], reverse=True)
         result.item_count = len(result.items)

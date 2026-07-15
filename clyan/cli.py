@@ -3,6 +3,18 @@ import json
 import sys
 import os
 
+_VERBOSE = False
+
+
+def _out(data: dict) -> None:
+    sys.stdout.write(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+    if _VERBOSE:
+        errors = data.get("errors", [])
+        if errors:
+            for err in errors:
+                print(f"  [!] {err}", file=sys.stderr)
+
+
 from .scan.space import SpaceScanner
 from .scan.dev_garbage import DevGarbageScanner
 from .scan.browser_cache import BrowserCacheScanner
@@ -17,10 +29,6 @@ from .core.report import summarize_scan_results
 from .utils.size import parse_size
 from .utils.size import format_size
 from .utils.dirtree import reset_dir_total_cache
-
-
-def _out(data: dict) -> None:
-    sys.stdout.write(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
 
 
 def cmd_scan_space(args: argparse.Namespace) -> None:
@@ -483,6 +491,7 @@ def cmd_undo(args: argparse.Namespace) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="clyan", description="AI-driven disk cleaner")
+    p.add_argument("--verbose", "-v", action="store_true", help="show detailed error information")
     sub = p.add_subparsers(dest="command")
 
     sp = sub.add_parser("scan", help="scan for cleanable items")
@@ -655,8 +664,11 @@ def _schedule_remove(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
+    global _VERBOSE
     parser = build_parser()
     args = parser.parse_args()
+    if getattr(args, "verbose", False):
+        _VERBOSE = True
 
     if args.command == "scan":
         dispatch = {
