@@ -369,7 +369,7 @@ async def handle_list_resources():
 async def handle_read_resource(uri: str):
     from .reflex import check_pulse
     if uri == "disk://C:/health":
-        data = check_pulse("C:\")
+        data = check_pulse("C:\\")
         return TextContent(type="text", text=json.dumps(data, ensure_ascii=False, indent=2))
     raise ValueError(f"Unknown resource: {uri}")
 
@@ -384,7 +384,7 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent]:
         # ── reclaim ──
         elif name == "reclaim":
             from .reclaim import reclaim as _reclaim, execute_phase as _execute_phase
-            path = arguments.get("path", "C:\")
+            path = arguments.get("path", "C:\\")
             phase = arguments.get("phase", "")
             dry_run = arguments.get("dry_run", False)
             plan = _reclaim(path)
