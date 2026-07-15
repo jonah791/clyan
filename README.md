@@ -8,8 +8,9 @@
 ## 功能
 
 - **50+ 缓存检测器**：npm / pip / cargo / Go / Docker / IDE 缓存 / 浏览器缓存 / Windows 系统缓存 / Maven / WER / 开发垃圾 + Delivery Optimization / SoftwareDistribution / Store / Teams / OneDrive / Defender / Xbox 等 Windows 扩展
-- **重复文件检测 + 清理**：三步检测（按大小分组 → BLAKE2b 部分哈希 → 全量哈希），支持 `--dedupe keep-newest/first/smallest` 策略
+- **重复文件检测 + 清理**：三步检测（按大小分组 → **4KB 部分哈希** → 全量哈希），支持并行目录遍历 + inode 去重（跳过硬链接）+ match-and-stop 跳过构件目录，`--dedupe keep-newest/first/smallest` 策略
 - **大文件发现**：`scan files C:\ --min-size 100MB --top 20` 找到硬盘上最大的单个文件
+- **构建废物检测**：50+ 构件目录覆盖（node_modules / .next / .angular / .vite / .nx / .swc / .turbo / .serverless 等），外加文件级产物（.tsbuildinfo / 构建日志 / 堆快照），match-and-stop 避免递归遍历
 - **Windows 深度清理**：WinSxS 组件存储、Windows.old 旧系统、DriverStore 驱动备份、Delivery Optimization 缓存、WER 错误报告、DISM 清理、Store / Teams / OneDrive / Defender / Xbox 专项缓存
 - **三级安全体系**：Safe（安全可删）/ Caution（谨慎，可能需重建）/ Unsafe（不可删，含配置/凭据），配合保护路径系统和豁免规则
 - **磁盘概览 + 趋势**：`clyan scan disk C:\ --depth 2` — 总容量/已用/剩余 + 层次化目录树 + 分类占用 + `--trend` 历史变化
@@ -31,13 +32,13 @@
 
 ## 性能
 
-| 扫描范围 | 规模 | v0.1.0 | **v0.10.0** | 提速 |
+| 扫描范围 | 规模 | v0.1.0 | **v0.11.0** | 提速 |
 |---------|------|--------|-----------|------|
 | 用户目录 `C:\Users\xxx` | ~40 GB | ~23s | **~0.2s** | **~99%** |
-| 全盘 C: 快速体检 | ~335 GB | — | **~29s** | — |
-| 全盘 C: 目录树 (depth=2) | ~335 GB | — | **~22s** | — |
-| 扫描 200 散落目录 | 8 provider 并行 | — | **~2.3s** | — |
-| 扫描新 provider (8个) | Windows 扩展| — | **~0.03s** | — |
+| 全盘 C: 快速体检 | ~335 GB | — | **~8s** | — |
+| 全盘 C: 目录树 (depth=2) | ~335 GB | — | **~7s** | — |
+| 重复检测 40K 文件 | 4KB hash + 并行遍历 | — | **~2s** | — |
+| 扫描 dev-garbage (206项) | 50+ 构件目录 | — | **~8s** | — |
 
 ## 快速开始
 
@@ -239,6 +240,7 @@ clyan mcp
 
 | 版本 | 亮点 |
 |------|------|
+| **v0.11.0** | 重复检测全面提速（4KB 一档 I/O + 并行遍历 + inode 去重）、构建产物覆盖扩展（20 个新目录 + 文件级检测）、参考 ddh/dustoff 项目 |
 | **v0.10.0** | 执行层精简（AI 全权决策）、8 个新 Windows provider（Delivery Opt / SoftwareDistribution / Store / Teams / OneDrive / Defender / Xbox / 旧备份）、删硬编码阈值和 `is_protected` 拦截 |
 | **v0.9.0** | 大文件发现 `scan files`、重复文件清理 `--dedupe`、应用影响预警 `warning` 字段、confidence 下限修正 |
 | **v0.8.0** | 完整清理周期：验证+报告（actual_freed/delta）、磁盘趋势 --trend、clean --deep、schedule 定时清理、MCP clean_deep（16 tools） |
