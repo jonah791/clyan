@@ -1,6 +1,6 @@
 # 缓存检测器开发指南
 
-> Clyan 的 provider 系统是可插拔的架构。每个 provider 是一个独立的扫描函数，通过 `register()` 注册后自动集成到扫描管线中。
+> Clyan 的 provider 系统是可插拔的架构。每个 provider 是一个独立的扫描函数，通过 `register()` 注册后自动集成到扫描管线中。当前共 **53+ 固定 provider + 动态 Winapp2**。
 
 ## 架构概览
 
@@ -11,9 +11,9 @@ provider 函数: (root: str) -> list[CacheItem]
                       ↓
            detect_all() 并发执行全部
                       ↓
-            _attach_signals() 附加信号
+            _attach_signals() + enrich + impact + confidence
                       ↓
-            ScanResult.to_dict() → enrich → 输出
+            ScanResult.to_dict() → 输出
 ```
 
 ## 快速开始
@@ -78,7 +78,7 @@ from . import node, python_prov, ..., my_provider
 | `provider` | ✅ | string | provider 标识符（英文小写） |
 | `label` | ✅ | string | 人类可读标签 |
 | `safety` | ✅ | SafetyLevel | SAFE / CAUTION / UNSAFE |
-| `confidence` | — | float | 预设置信度（默认 1.0，会被引擎覆盖） |
+| `confidence` | — | float | 预设置信度（会被引擎覆盖） |
 | `extra` | — | dict | 附加信号 |
 
 ### extra 建议字段
@@ -96,6 +96,37 @@ from . import node, python_prov, ..., my_provider
 | `SAFE` | 安全可删，自动重建 | 缓存、临时文件、构建产物 |
 | `CAUTION` | 注意，可能需重建 | 虚拟环境、IDE 缓存、大模型缓存 |
 | `UNSAFE` | 不可删，含配置/凭据 | 配置文件、密钥、用户数据 |
+
+## 现有 provider 参考（53+）
+
+### 包管理器缓存（12）
+| Provider | 扫描逻辑 | 说明 |
+|----------|---------|------|
+| `npm_cache` | `dir_total(npm-cache)` | npm 全局缓存 |
+| `npm_deep` | 拆解 _npx / _cacache / npm_global | **深度分解，按年份/类型分组** |
+| `npm_prune` | npm cache ls + 年龄信号 | **主动裁剪，3882 entries** |
+| `pip_cache` | `dir_total(pip/cache)` | pip wheel 缓存 |
+| `pip_deep` | 按 6 个时间区间统计 wheel | **年龄分组，区分新旧** |
+| `cargo_registry` | `dir_total(.cargo/registry)` | Rust 依赖缓存 |
+| `go_cache` | `dir_total(go/pkg/mod)` | Go 模块缓存 |
+| `pnpm_cache` | `dir_total(pnpm/store)` | pnpm 存储 |
+
+### Windows 系统（15）
+| Provider | 扫描逻辑 | 说明 |
+|----------|---------|------|
+| `win_deep` | DISM 分析 WinSxS/DriverStore | 组件存储 + 驱动 |
+| `windows_installer` | 按类型/年龄分析 Installer | **旧补丁/旧安装源/大文件三级** |
+| `dism_cleanup` | DISM 命令级建议 | **StartComponentCleanup/ResetBase** |
+| `windows_extra` | 8 个子 provider | DO / Store / Teams / OneDrive / Defender / Xbox / 备份 |
+| `system_temp` | Temp 递归扫描 | 临时文件 + 孤儿目录 |
+
+### 深度裁剪 provider
+| Provider | 覆盖范围 | 分解方式 |
+|----------|---------|---------|
+| `npm_deep` | npm 缓存 11.3 GB | _npx (1.4 GB, cost=none), _cacache (6.2 GB), npm_global (3.8 GB) |
+| `pip_deep` | pip 缓存 3.6 GB | 按 6 个时间区间 + old_ratio |
+| `windows_installer` | Installer 5.6 GB | 旧 MSP 补丁 / 旧 MSI / 大文件 |
+| `dism_cleanup` | WinSxS/DriverStore | 4 个 DISM 命令级建议 |
 
 ## Provider 最佳实践
 
@@ -116,6 +147,12 @@ os.environ.get("ProgramData", "C:\\ProgramData")
 使用 `dir_total(path)` 递归计算目录大小。它自带 LRU 缓存和多 provider 并发安全:
 - 对大目录（>1 GB）会自动优化
 - 结果被缓存，同次扫描中重复调用立即返回
+
+### 深度拆分
+
+对于大的缓存目录（如 npm-cache 9 GB），建议按子组件拆分：
+- 不同子目录有不同 `recovery_cost`
+- AI 可以只删 cost=none 的部分（如 _npx）而保留其他
 
 ### Winapp2 风格
 

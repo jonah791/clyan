@@ -1,9 +1,97 @@
 # MCP 工具参考
 
-> Clyan 提供 19 个 MCP 工具，通过 stdio 传输协议供 AI Agent 调用。
+> Clyan 提供 23 个 MCP 工具 + 1 个 Resource，通过 stdio 传输协议供 AI Agent 调用。
 > 启动: `clyan mcp`
 
-## 扫描工具
+## ⚡ Reflex 工具
+
+### check_disk_pulse
+
+**磁盘健康检查。** <1ms，零扫描零 IO。使用缓存的状态 + statvfs。
+
+```json
+{
+  "path": "C:\\"
+}
+```
+
+返回:
+```json
+{
+  "status": "healthy",        // healthy / warning / critical
+  "free_gb": 127.1,
+  "free_pct": 29.1,
+  "safe_reclaimable_gb": 28.4,
+  "days_until_critical": 47,
+  "growth_rate_gb_per_week": 1.8,
+  "cached": true,
+  "ellapsed_ms": 0.5
+}
+```
+
+如果缓存为空，自动执行轻量预热（<200ms）。
+
+### auto_clear_safe
+
+**零决策自动清理。** 只删 recovery_cost=none 的项（Temp / npx / 缩略图 / WER 等）。
+使用缓存数据优先，避免重复全量扫描。
+
+```json
+{
+  "path": "C:\\Users\\tr",
+  "target_gb": 5.0
+}
+```
+
+返回:
+```json
+{
+  "reclaimed_gb": 4.2,
+  "items_cleared": 12,
+  "items_failed": 0,
+  "actual_freed_human": "4.15 GB",
+  "ellapsed_ms": 1230
+}
+```
+
+### reclaim
+
+**全量扫描 → 去重 → enrich → 分 5 阶段 → 执行。一次性回收计划。**
+
+```json
+{
+  "path": "C:\\Users\\tr",
+  "phase": "",        // 可选: 指定执行某阶段 (none/low/medium/high)
+  "dry_run": false    // 可选: 只预览不执行
+}
+```
+
+返回 phases 数组:
+```json
+{
+  "total_size": 1040618848,
+  "total_size_human": "992.41 MB",
+  "total_items": 364,
+  "phases": [
+    {
+      "cost": "none",
+      "item_count": 39,
+      "total_size_human": "28.97 GB",
+      "ecosystem_breakdown": [...],
+      "items": [...]
+    },
+    {
+      "cost": "low",
+      "item_count": 13,
+      "total_size_human": "1.12 GB",
+      ...
+    }
+  ],
+  "recommendation": "按 Phase 1→2→3→4 顺序执行..."
+}
+```
+
+## 🔍 扫描工具
 
 ### scan_quick
 
@@ -11,24 +99,22 @@
 
 ```json
 {
-  "path": "C:\\Users\\tr"  // 根路径，默认当前用户
+  "path": "C:\\Users\\tr"
 }
 ```
 
-返回: 按分类聚合的可清理空间，含完整信号字段。
+返回: 按分类聚合的可清理空间（53 provider + Winapp2 并行）。
 
 ### scan_dev_garbage
 
-开发者缓存/垃圾扫描（45 provider 并发，含 Winapp2 社区清理器）。
+开发者缓存/垃圾扫描（53 provider 并发，含 Winapp2 社区清理器）。
 
 ```json
 {
   "path": "C:\\Users\\tr",
-  "min_size_mb": 50  // 可选，过滤小于此值的项
+  "min_size_mb": 50
 }
 ```
-
-返回: 每项附带 `would_break` / `ecosystem` / `recovery_cost` / `historical_accuracy`。
 
 ### scan_browsers
 
@@ -63,11 +149,11 @@ Windows 系统临时文件 + Temp 深度分解 + 回收站。
 
 已安装的包管理器环境检测（npm / pip / cargo / go / conda / scoop 等）。
 
-## 分析工具
+## 🧠 分析工具
 
 ### get_confidence_summary
 
-给任意 items 列表附加置信度评分 + 影响预警。
+给任意 items 列表附加置信度评分 + 影响预警 + 行为学习调整。
 
 ```json
 {
@@ -87,22 +173,6 @@ Windows 系统临时文件 + Temp 深度分解 + 回收站。
 }
 ```
 
-返回:
-```json
-{
-  "provider": "npm_cache",
-  "history": [
-    {"op_id": 5, "predicted_size": 3000000, "actual_freed": 2800000, "accuracy_ratio": 0.93}
-  ],
-  "summary": {
-    "total_ops": 3,
-    "avg_accuracy": 0.91,
-    "total_predicted": 10000000,
-    "total_actual": 9100000
-  }
-}
-```
-
 ### system_health
 
 系统健康检查。一次调用获取磁盘 + 可回收 + 趋势 + 准确率全貌。
@@ -113,11 +183,21 @@ Windows 系统临时文件 + Temp 深度分解 + 回收站。
 }
 ```
 
-## 清理工具
+### clean_plan
+
+分析 items 返回按 `recovery_cost` 排序的执行计划。
+
+```json
+{
+  "items": [...]
+}
+```
+
+## 🧹 清理工具
 
 ### clean_propose（阶段 1/2）
 
-安全清理两阶段协议的第一阶段：提交 items，返回 action_id + 影响分析。**不执行删除。**
+安全清理两阶段协议的第一阶段：提交 items，返回 action_id + 影响分析。
 
 ```json
 {
@@ -126,11 +206,9 @@ Windows 系统临时文件 + Temp 深度分解 + 回收站。
 }
 ```
 
-返回 `action_id`（有效期内的令牌），AI 可以展示影响给用户确认。
-
 ### clean_confirm（阶段 2/2）
 
-用 `action_id` 确认执行。只有被确认的才会真正删除。
+用 `action_id` 确认执行。
 
 ```json
 {
@@ -138,68 +216,17 @@ Windows 系统临时文件 + Temp 深度分解 + 回收站。
 }
 ```
 
-返回: `success_count` / `fail_count` / `actual_freed` / `protected_warned`。
-
 ### clean_auto
 
 一键自主清理：scan → 评分 → 过滤 → 执行。
 
-```json
-{
-  "path": "C:\\Users\\tr",
-  "strategy": "safe",        // safe / aged / orphan / all
-  "min_confidence": 0.9,
-  "use_trash": true,
-  "fast": false
-}
-```
-
 ### clean_deep
 
-完整清理周期：全量扫描 → 评分 → 过滤 → 执行 → 验证。比 clean_auto 更全面。
-
-```json
-{
-  "path": "C:\\Users\\tr",
-  "strategy": "safe",
-  "use_trash": true,
-  "fast": false
-}
-```
-
-### clean_plan
-
-分析 items 返回按 `recovery_cost` 排序的执行计划。AI 先看计划再决定怎么删。
-
-```json
-{
-  "items": [...]
-}
-```
-
-返回:
-```json
-{
-  "total_items": 100,
-  "phases": [
-    {"cost": "none", "count": 30, "total_size_human": "1.2 GB"},
-    {"cost": "low", "count": 20, "total_size_human": "500 MB"},
-    {"cost": "medium", "count": 40, "total_size_human": "2.1 GB"},
-    {"cost": "high", "count": 10, "total_size_human": "3.4 GB"}
-  ],
-  "recommendation": "Execute phases in order: start with 'none' cost items..."
-}
-```
+完整清理周期：全量扫描 → 评分 → 过滤 → 执行 → 验证。
 
 ### clean_preview
 
-预览检查（保护路径警告、已存在检查）。不删东西。
-
-```json
-{
-  "items": [...]
-}
-```
+预览检查（保护路径警告）。
 
 ### clean_execute
 
@@ -208,18 +235,12 @@ Windows 系统临时文件 + Temp 深度分解 + 回收站。
 ```json
 {
   "items": [
-    {
-      "path": "C:\\cache\\npm",
-      "size": 1000000,
-      "provider": "npm_cache",
-      "method": "trash"  // AI 指定删除方法
-    }
-  ],
-  "fast": false
+    {"path": "C:\\cache\\npm", "size": 1000000, "method": "trash"}
+  ]
 }
 ```
 
-## 历史 / 管理工具
+## 📜 历史工具
 
 ### history
 
@@ -227,20 +248,26 @@ Windows 系统临时文件 + Temp 深度分解 + 回收站。
 
 ```json
 {
-  "op_id": null,   // 可选，指定查看某次操作
+  "op_id": null,
   "limit": 20
 }
 ```
 
 ### undo
 
-撤销某次清理（标记为已撤销）。
+撤销某次清理。
 
 ```json
 {
   "op_id": 5
 }
 ```
+
+## 🔗 Resource
+
+### disk://C:/health
+
+MCP Resource 端点。AI Agent 可订阅此资源，获取 C 盘实时健康状态。
 
 ## MCP 工具信号字段
 
@@ -254,13 +281,13 @@ Windows 系统临时文件 + Temp 深度分解 + 回收站。
 | `provider` | string | provider 名称（npm_cache / winapp2 / python 等） |
 | `label` | string | 人类可读标签 |
 | `safety` | string | safe / caution / unsafe |
-| `confidence` | float | 置信度 0.0–1.0 |
+| `confidence` | float | 置信度 0.0–1.0（含行为学习调整） |
 | `reason` | string | 中文评分原因 |
 | `would_break` | string[] | 删除后果描述 |
 | `would_affect` | string[] | 受影响的应用 |
 | `recovery_cost` | string | none / low / medium / high |
-| `ecosystem` | string | node / python / windows / browser / ide / ml / build |
+| `ecosystem` | string | node / python / windows / browser / ide / ml |
 | `age_days` | int | 最近修改距今天数 |
 | `tool_installed` | bool | 对应工具是否仍在系统中 |
 | `historical_accuracy` | object | 该 provider 的历史清理准确率（如有） |
-| `warning` | string | 影响预警（如有） |
+| `_scanner` | string | 来源扫描器（仅 reclaim 用） |

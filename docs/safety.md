@@ -44,7 +44,6 @@
 | `__pycache__`, `.mypy_cache`, `.pytest_cache` | — |
 | `.next`, `.turbo`, `.gradle` | — |
 | `Prefetch`, `FontCache` | 不在 `Windows` 下 |
-| `assembly` | 不在 `Windows` 下 |
 
 ## 信任系统（v0.14.0+）
 
@@ -62,24 +61,53 @@ clyan trust remove C:\Users\tr\AppData\Local\SomeApp
 2. 如果路径本身或任一祖先路径在信任表中 → 跳过保护规则
 3. 信任记录持久化到 SQLite，跨会话有效
 
-### 使用建议
+## ⚡ Reflex 安全机制（v1.0.0-rc+）
 
-- AI 验证过的安全缓存路径 → 添加信任
-- 用户明确授权的目录 → 添加信任
-- 系统关键路径 → 不要信任
+Reflex 是无意识的，但安全性由三层保证:
+
+| 反射级别 | 安全机制 | 风险 |
+|--------|---------|------|
+| **tick** (`check_disk_pulse`) | 只读 statvfs + 缓存，不碰磁盘 | 零风险 |
+| **twitch** (`auto_clear_safe`) | **只删 recovery_cost=none 的项** | 极低风险 |
+| **spasm** (`reclaim --phase`) | 分阶段执行，每阶段可独立确认 | 中风险 |
+
+### auto_clear_safe 的安全过滤
+
+```
+1. 全量扫描 → 获取所有 items
+2. 过滤 recovery_cost == "none"  ← 只碰零成本项
+3. 按 size 降序排列
+4. 使用回收站 (send2trash)  ← 可还原
+5. 执行后测量 actual_freed
+6. 返回 protected_paths_skipped  ← 被保护的路径不删
+```
+
+cost=none 的典型项：Temp / npx 二进制 / 缩略图缓存 / WER 错误报告 / 最近文档。
 
 ## 置信度评分（v0.4.0+）
 
-6 信号加权评分, 0.0–1.0:
+6 信号加权评分 + 行为学习调整, 0.0–1.0:
 
 | 信号 | 权重 | 最高分 | 说明 |
 |------|------|--------|------|
 | 安全级别 | 30% | 30 | SAFE=30, CAUTION=15, UNSAFE=0 |
 | 文件陈旧度 | 25% | 25 | >90天=25, >30天=17, >7天=8, 近期=0 |
 | 工具已卸载 | 15% | 15 | 对应包管理器不在 PATH 中=15 |
-| 已知缓存目录名 | 10% | 10 | npm-cache / Temp / __pycache__ 等=10 |
-| 孤儿标记 | 10% | 10 | Temp 内孤儿临时目录=10 |
-| 重建成本 | 10% | 20 | none=+20, low=+5, high=-20 |
+| 已知缓存目录名 | 10% | 10 | npm-cache / Temp / __pycache__ 等 |
+| 孤儿标记 | 10% | 10 | Temp 内孤儿临时目录 |
+| **重建成本** | **10%** | **20** | **none=+20, low=+5, high=-20** |
+
+### 行为学习调整（v1.0.0-rc+）
+
+置信度分数再叠加行为学习:
+
+| 条件 | 调整 | 原因 |
+|------|------|------|
+| AI 连续跳过某 provider (>70%) | **-0.10** | AI 认为不需要 |
+| AI 连续清理某 provider (>70%) | **+0.05** | AI 认为安全 |
+| 历史准确率 < 70% | **-0.05** | 校准 |
+| 历史准确率 > 95% | **+0.03** | 信任 |
+| 新类型 (<2 次出现) | **-0.03** | 保守 |
 
 ## 影响预测（v0.13.0+）
 
@@ -98,7 +126,7 @@ clyan trust remove C:\Users\tr\AppData\Local\SomeApp
 
 | 等级 | 含义 | 示例 |
 |------|------|------|
-| `none` | 无影响，自动重建 | Temp, 浏览器缓存, WER |
+| `none` | 无影响，自动重建 | Temp, 浏览器缓存, WER, npx |
 | `low` | 本地快速重建 | IDE 缓存, 缩略图 |
 | `medium` | 需要一些时间 | 构建产物, Flutter 缓存 |
 | `high` | 需要网络下载 | pip/npm/cargo 缓存, ML 模型 |
@@ -110,18 +138,17 @@ clyan trust remove C:\Users\tr\AppData\Local\SomeApp
 
 | 生态组 | Provider 示例 |
 |--------|-------------|
-| `node` | npm_cache, pnpm_cache, bun_cache, node_modules, node_waste |
-| `python` | pip_cache, python, venv |
+| `node` | npm_cache, npm_deep, npm_prune, pnpm_cache, node_modules |
+| `python` | pip_cache, pip_deep, python, venv |
 | `rust` | cargo_registry, target |
 | `go` | go_cache |
 | `java` | gradle_cache, maven_cache |
 | `dotnet` | nuget_cache |
 | `browser` | browser, browser_deep |
 | `ide` | vscode_cache, jetbrains_cache, ide |
-| `windows` | system, winsxs, windows_update, windows_extra, win_deep, driver_store |
+| `windows` | system, winsxs, windows_installer, dism_cleanup, windows_extra |
 | `ml` | ml_cache, docker_images |
 | `build` | build_artifacts, build_artifacts_file |
-| `app` | app_cache（Winapp2 无分类的条目） |
 
 ## 历史准确率（v0.14.0+）
 
@@ -139,8 +166,8 @@ clyan trust remove C:\Users\tr\AppData\Local\SomeApp
 ```
 
 AI 可以利用这个数据决定是否清理某类缓存:
-- `avg_accuracy` ≥ 0.9 → 可信，按预计释放决策
-- `avg_accuracy` < 0.7 → 不可信，谨慎决策
+- `avg_accuracy` ≥ 0.9 → 可信
+- `avg_accuracy` < 0.7 → 不可信，谨慎
 
 ## 两阶段清理协议
 
@@ -149,14 +176,12 @@ AI 通过 `clean_propose` + `clean_confirm` 两步完成安全清理:
 ```
 Phase 1: clean_propose(items)
   → 返回 action_id + 影响分析（不删东西）
-  → AI 可以展示给用户确认
-
 Phase 2: clean_confirm(action_id)
   → 执行实际删除
   → 返回 actual_freed + protected_warned
 ```
 
-对于受信任的 AI Agent，可直接使用 `clean_execute` 或 `clean_auto`。
+对于受信任的 AI Agent，可直接使用 `clean_execute` 或 `auto_clear_safe`。
 
 ## protected_warned 机制
 
@@ -165,5 +190,3 @@ Phase 2: clean_confirm(action_id)
 1. 检测到保护路径 → 正常执行
 2. 在返回结果中附加 `protected_warned` 列表
 3. AI 自己决定是否继续
-
-这样 AI 可以看到 "这个路径触发了保护警告，但我仍然决定删它" 的完整决策链。
