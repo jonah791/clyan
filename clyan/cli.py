@@ -1009,40 +1009,14 @@ def main() -> None:
         fn = dispatch.get(args.scan_type)
         if fn:
             fn(args)
-        else:
-            # Default: progressive drill-down scan
-            path = getattr(args, "path", "C:\\")
-            from .utils.pathfmt import norm
-            import os, json, time
-            t0 = time.time()
-            result = {"path": norm(path), "items": [], "errors": [], "inaccessible_count": 0}
-            if os.path.isdir(path):
-                total = 0
-                dirs = []
-                try:
-                    for entry in os.scandir(path):
-                        try:
-                            if entry.is_dir():
-                                sz = _dir_size(entry.path)
-                                dirs.append({"name": entry.name, "path": norm(entry.path), "size": sz, "is_dir": True})
-                                total += sz
-                            elif entry.is_file():
-                                sz = entry.stat().st_size
-                                dirs.append({"name": entry.name, "path": norm(entry.path), "size": sz, "is_dir": False})
-                                total += sz
-                        except: pass
-                except Exception as e:
-                    result["errors"].append(str(e))
-                dirs.sort(key=lambda x: -x["size"])
-                result["items"] = dirs[:40]
-                result["total_size"] = total
-                result["total_size_human"] = _fmt(total)
-                result["dir_count"] = len(dirs)
-                result["scan_time_ms"] = int((time.time() - t0) * 1000)
-                _print_scan_result(result)
-            else:
-                result["errors"].append("Path not found")
-                _out(result)
+            return
+
+        # Default: Progressive drill-down scan
+        path = getattr(args, "path", "C:\\") or "C:\\"
+        from .scan.drill import scan_dir
+        result = scan_dir(path)
+        _out(result)
+
     elif args.command == "clean":
         cmd_clean(args)
     elif args.command == "reclaim":
