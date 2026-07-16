@@ -123,10 +123,10 @@ def scan_disk(path: str = "C:\\", depth: int = 2, top_n: int = 15) -> ScanResult
                        ("edge", "Edge"), ("edge_code_cache", "Edge"),
                        ("firefox", "Firefox")]:
             p = browser_cache_paths().get(key, "")
-        if p and os.path.isdir(p):
-            sz = dir_total(p)
-            if sz > 0:
-                k = f"{label} 缓存"; gb[k] = gb.get(k, 0) + sz
+            if p and os.path.isdir(p):
+                sz = dir_total(p)
+                if sz > 0:
+                    k = f"{label} 缓存"; gb[k] = gb.get(k, 0) + sz
     result.extra["reclaimable"] = {
         "total": garbage_total, "total_human": format_size(garbage_total),
         "breakdown": [{"label": k, "size": v, "size_human": format_size(v)}

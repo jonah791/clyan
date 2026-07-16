@@ -175,7 +175,7 @@ def delete_items(items: list[dict], use_trash: bool = True, fast: bool = False) 
     try:
         from ..core.history import record_clean
         items_for_record = []
-        for item in to_delete:
+        for item in items:
             if isinstance(item, dict):
                 items_for_record.append({"path": item.get("path", ""), "size": item.get("size", 0), "provider": item.get("provider", "unknown")})
             elif hasattr(item, "to_dict"):

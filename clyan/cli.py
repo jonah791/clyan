@@ -193,7 +193,7 @@ def _filter_by_safety(items: list[dict], level: str) -> list[dict]:
         return items
     levels = {"safe": 0, "caution": 1, "unsafe": 2}
     threshold = levels[level]
-    return [i for i in items if levels.get(i.get("safety", "unsafe"), 2) >= threshold]
+    return [i for i in items if levels.get(i.get("safety", "unsafe"), 2) <= threshold]
 
 
 def _ensure_confidence(items: list[dict]) -> None:

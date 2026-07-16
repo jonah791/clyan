@@ -163,6 +163,7 @@ def get_all_provider_feedback(limit: int = 10) -> dict:
     rows = conn.execute(
         "SELECT provider, COUNT(*) as cnt, SUM(predicted_size) as total_pred, SUM(actual_freed) as total_actual, AVG(CAST(actual_freed AS FLOAT) / CAST(MAX(predicted_size,1) AS FLOAT)) as avg_acc FROM clean_feedback GROUP BY provider ORDER BY total_pred DESC"
     ).fetchall()
+    total_ops = conn.execute("SELECT COUNT(*) FROM clean_feedback").fetchone()[0]
     conn.close()
 
     providers = {}
@@ -178,7 +179,7 @@ def get_all_provider_feedback(limit: int = 10) -> dict:
         }
 
     return {
-        "total_clean_ops": conn.execute("SELECT COUNT(*) FROM clean_feedback").fetchone()[0] if 'conn' in dir() else 0,
+        "total_clean_ops": total_ops,
         "providers": providers,
     }
 

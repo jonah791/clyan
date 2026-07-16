@@ -7,10 +7,9 @@
       "env": {},
       "disabled": false,
       "autoApprove": [
-        "check_disk_pulse",
-        "auto_clear_safe",
+        "system_health",
         "scan_disk",
-        "system_health"
+        "scan"
       ]
     }
   }

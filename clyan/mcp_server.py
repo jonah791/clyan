@@ -22,6 +22,16 @@ from .core.history import get_history, get_operation, mark_undone
 
 server = Server("clyan", version="2.1.0")
 _proposals: dict[str, dict[str, Any]] = {}
+import time
+_PROPOSAL_TTL = 3600  # 1 hour
+
+
+def _clean_stale_proposals():
+    now = time.time()
+    stale = [k for k, v in _proposals.items()
+             if now - v.get("_ts", 0) > _PROPOSAL_TTL]
+    for k in stale:
+        _proposals.pop(k, None)
 
 
 def _enrich_items(items: list[dict]) -> None:
@@ -228,7 +238,8 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent]:
             preview = generate_preview(items)
 
             action_id = str(uuid.uuid4())[:8]
-            _proposals[action_id] = {"items": items}
+            _proposals[action_id] = {"items": items, "_ts": time.time()}
+            _clean_stale_proposals()
 
             return _ok({
                 "action_id": action_id,
