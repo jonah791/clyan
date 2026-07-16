@@ -90,6 +90,26 @@ _IMPACT_DB: dict[str, tuple[list[str], list[str], str]] = {
         ["firefox"],
         "low",
     ),
+    "browser_deep:chrome_sw_cache": (
+        ["Chrome Service Worker cache cleared — sites need to re-register SW"],
+        ["chrome"],
+        "low",
+    ),
+    "browser_deep:chrome_indexeddb": (
+        ["Chrome IndexedDB cleared — site local data lost"],
+        ["chrome"],
+        "low",
+    ),
+    "browser_deep:edge_sw_cache": (
+        ["Edge Service Worker cache cleared — sites need to re-register SW"],
+        ["edge"],
+        "low",
+    ),
+    "browser_deep:edge_indexeddb": (
+        ["Edge IndexedDB cleared — site local data lost"],
+        ["edge"],
+        "low",
+    ),
     "browser_deep": (
         ["Browser history would be cleared, bookmarks preserved"],
         ["chrome", "edge", "firefox"],
@@ -338,6 +358,17 @@ _IMPACT_DB: dict[str, tuple[list[str], list[str], str]] = {
         ["docker"],
         "low",
     ),
+    "windows_logs": (
+        ["Windows Event Logs cleared — system will recreate new logs"],
+        ["windows"],
+        "none",
+    ),
+    "empty_dirs": (
+        ["Empty directories deleted — no impact, no data loss"],
+        [],
+        "none",
+    ),
+
     "vm_caches:wsl2_vhdx": (
         ["WSL2 VHDX disk compacted — safe, no data loss"],
         ["wsl"],
@@ -507,7 +538,7 @@ def ecosystem_for(provider: str, path: str = "") -> str:
                      "windows_system", "system", "win_deep", "driver_store"},
         "ml": {"ml_cache", "docker_images"},
         "build": {"build_artifacts", "build_artifacts_file"},
-        "other": {"small_files", "vm_caches"},
+        "other": {"small_files", "vm_caches", "windows_logs", "empty_dirs"},
         "windows": {"...windows already has full set..."},
     }
     

@@ -200,6 +200,7 @@ def scan_browser_deep() -> dict:
     # Chrome
     for profile in _get_chrome_profiles():
         all_items.extend(_scan_chrome_history_savings(profile))
+        all_items.extend(_scan_profile_cache_dirs(profile, "Chrome"))
     
     # Edge (same Chromium internals as Chrome)
     for profile in _get_edge_profiles():
@@ -208,6 +209,7 @@ def scan_browser_deep() -> dict:
             item["label"] = item["label"].replace("Chrome", "Edge")
             item["type"] = item["type"].replace("chrome", "edge")
         all_items.extend(items)
+        all_items.extend(_scan_profile_cache_dirs(profile, "Edge"))
     
     # Firefox
     for profile in _get_firefox_profiles():
@@ -223,6 +225,108 @@ def scan_browser_deep() -> dict:
         "edge_profiles": len(_get_edge_profiles()),
         "firefox_profiles": len(_get_firefox_profiles()),
     }
+
+
+def _scan_profile_cache_dirs(profile_dir: str, browser: str) -> list[dict]:
+    """Scan a Chromium profile for additional cleanable cache directories.
+    
+    Targets: Service Worker cache, IndexedDB, FileSystem, Extension caches.
+    These are standard Chromium subdirectories that can grow large.
+    """
+    from ..utils.dirtree import dir_total
+    results = []
+    
+    # Service Worker cache
+    sw_cache = os.path.join(profile_dir, "Service Worker", "CacheStorage")
+    if os.path.isdir(sw_cache):
+        sz = dir_total(sw_cache)
+        if sz > 1_000_000:
+            results.append({
+                "path": sw_cache,
+                "size": sz,
+                "db_path": sw_cache,
+                "label": f"{browser} Service Worker 缓存 ({format_size(sz)})",
+                "type": f"{browser.lower()}_sw_cache",
+                "note": "Service Worker 缓存，清除后网站需重新注册 Service Worker",
+                "provider": "browser_deep",
+            })
+    
+    # IndexedDB
+    idb = os.path.join(profile_dir, "IndexedDB")
+    if os.path.isdir(idb):
+        sz = dir_total(idb)
+        if sz > 1_000_000:
+            results.append({
+                "path": idb,
+                "size": sz,
+                "db_path": idb,
+                "label": f"{browser} IndexedDB ({format_size(sz)})",
+                "type": f"{browser.lower()}_indexeddb",
+                "note": "IndexedDB 数据，清除后网站本地数据丢失",
+                "provider": "browser_deep",
+            })
+    
+    # FileSystem (persistent storage)
+    fs = os.path.join(profile_dir, "File System")
+    if os.path.isdir(fs):
+        sz = dir_total(fs)
+        if sz > 1_000_000:
+            results.append({
+                "path": fs,
+                "size": sz,
+                "db_path": fs,
+                "label": f"{browser} FileSystem 存储 ({format_size(sz)})",
+                "type": f"{browser.lower()}_filesystem",
+                "note": "浏览器持久化存储，清除后网站存储数据丢失",
+                "provider": "browser_deep",
+            })
+    
+    # Extension caches
+    ext_cache = os.path.join(profile_dir, "Extension State")
+    if os.path.isdir(ext_cache):
+        sz = dir_total(ext_cache)
+        if sz > 1_000_000:
+            results.append({
+                "path": ext_cache,
+                "size": sz,
+                "db_path": ext_cache,
+                "label": f"{browser} 扩展缓存 ({format_size(sz)})",
+                "type": f"{browser.lower()}_ext_state",
+                "note": "浏览器扩展持久化状态，清除后扩展可能需重新登录",
+                "provider": "browser_deep",
+            })
+    
+    # Session Storage
+    ss = os.path.join(profile_dir, "Session Storage")
+    if os.path.isdir(ss):
+        sz = dir_total(ss)
+        if sz > 1_000_000:
+            results.append({
+                "path": ss,
+                "size": sz,
+                "db_path": ss,
+                "label": f"{browser} Session 存储 ({format_size(sz)})",
+                "type": f"{browser.lower()}_session_store",
+                "note": "浏览器会话存储，清除后关闭的标签页状态丢失",
+                "provider": "browser_deep",
+            })
+    
+    # Local Storage / WebSQL
+    ls = os.path.join(profile_dir, "Local Storage")
+    if os.path.isdir(ls):
+        sz = dir_total(ls)
+        if sz > 5_000_000:  # 5 MB threshold for localStorage
+            results.append({
+                "path": ls,
+                "size": sz,
+                "db_path": ls,
+                "label": f"{browser} LocalStorage ({format_size(sz)})",
+                "type": f"{browser.lower()}_local_storage",
+                "note": "浏览器本地存储，清除后网站偏好设置丢失",
+                "provider": "browser_deep",
+            })
+    
+    return results
 
 
 class BrowserDeepScanner(BaseScanner):
