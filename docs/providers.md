@@ -1,6 +1,6 @@
 # 缓存检测器开发指南
 
-> Clyan 的 provider 系统是可插拔的架构。每个 provider 是一个独立的扫描函数，通过 `register()` 注册后自动集成到扫描管线中。当前共 **56+ 固定 provider + 动态 Winapp2**。
+> Clyan 的 provider 系统是可插拔的架构。每个 provider 是一个独立的扫描函数，通过 `register()` 注册后自动集成到扫描管线中。当前共 **56+ 固定 provider + 动态 Winapp2 (3377 清理器)**。
 
 ## 架构概览
 
