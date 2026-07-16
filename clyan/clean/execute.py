@@ -171,6 +171,22 @@ def delete_items(items: list[dict], use_trash: bool = True, fast: bool = False) 
     actual_freed = after_free - before_free
     delta = actual_freed - total_freed
 
+    # Feed learning loop: record what was cleaned
+    try:
+        from ..core.history import record_clean
+        items_for_record = []
+        for item in to_delete:
+            if isinstance(item, dict):
+                items_for_record.append({"path": item.get("path", ""), "size": item.get("size", 0), "provider": item.get("provider", "unknown")})
+            elif hasattr(item, "to_dict"):
+                d = item.to_dict()
+                items_for_record.append({"path": d.get("path", ""), "size": d.get("size", 0), "provider": getattr(item, "provider", "unknown")})
+        if items_for_record:
+            total = sum(i.get("size", 0) for i in items_for_record)
+            record_clean(items_for_record, total, "delete", before_free, after_free)
+    except Exception:
+        pass
+    
     return {
         "success_count": success_count, "fail_count": fail_count,
         "already_gone": already_gone_count,

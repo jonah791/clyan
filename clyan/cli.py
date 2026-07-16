@@ -684,6 +684,15 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     print()
 
 
+def cmd_benchmark(args: argparse.Namespace) -> None:
+    """Benchmark all providers and show top timings."""
+    from .scan.providers import benchmark_providers
+    import json
+    results = benchmark_providers(args.path)
+    total = sum(r.get("time_s", 0) for r in results)
+    print(json.dumps({"top_slowest": results, "total_time_s": round(total, 2)}, ensure_ascii=False, indent=2))
+
+
 def cmd_undo(args: argparse.Namespace) -> None:
     ok = mark_undone(args.id)
     _out({"operation_id": args.id, "undone": ok})
@@ -836,6 +845,11 @@ def build_parser() -> argparse.ArgumentParser:
     doc = sub.add_parser("doctor", help="[DIAG] Clyan system diagnosis")
     doc.add_argument("--verbose", "-v", action="store_true",
                      help="detailed diagnostics")
+
+    # ── Benchmark subcommand ──
+    bm = sub.add_parser("benchmark", help="[PERF] provider benchmark")
+    bm.add_argument("path", nargs="?", default="C:\\",
+                     help="path to scan (default: C:\\)")
 
     return p
 
@@ -1017,6 +1031,8 @@ def main() -> None:
         cmd_report(args)
     elif args.command == "doctor":
         cmd_doctor(args)
+    elif args.command == "benchmark":
+        cmd_benchmark(args)
     elif args.command == "undo":
         cmd_undo(args)
     elif args.command == "pulse":

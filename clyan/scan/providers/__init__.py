@@ -194,12 +194,13 @@ def detect_all(root: str) -> tuple[dict[str, list[CacheItem]], list[str]]:
     from ...core.config import is_protected
     results: dict[str, list[CacheItem]] = {}
     errors: list[str] = []
+    PROVIDER_TIMEOUT = 30  # max seconds per provider
     with ThreadPoolExecutor(max_workers=min(8, len(_registry) or 1)) as pool:
         futures = {pool.submit(fn, root): name for name, fn in _registry.items()}
         for f in as_completed(futures):
             name = futures[f]
             try:
-                items = f.result()
+                items = f.result(timeout=PROVIDER_TIMEOUT)
                 if items:
                     items = [i for i in items if not is_protected(i.path)]
                     results[name] = items
@@ -213,6 +214,23 @@ def detect_all(root: str) -> tuple[dict[str, list[CacheItem]], list[str]]:
 
 def get_registered_providers() -> list[str]:
     return list(_registry.keys())
+
+
+def benchmark_providers(root: str, top_n: int = 10) -> list[dict]:
+    """Time each provider and return sorted results."""
+    import time
+    results = []
+    for name, fn in _registry.items():
+        t0 = time.time()
+        try:
+            items = fn(root)
+            t = time.time() - t0
+            size = sum(i.size for i in items) if items else 0
+            results.append({"provider": name, "time_s": round(t, 3), "items": len(items or []), "size_mb": round(size/1e6, 1)})
+        except Exception as e:
+            results.append({"provider": name, "time_s": round(time.time()-t0, 3), "error": str(e)[:50]})
+    results.sort(key=lambda x: -x["time_s"])
+    return results[:top_n]
 
 
 from . import node, python_prov, rust_prov, ide, build, misc, windows_system, app_caches, win_deep, maven, windows_extra, winapp2_prov, npm_deep, pip_deep, windows_installer, dism_cleanup, npm_prune, small_files, vm_caches, windows_logs, empty_dirs, gpu_caches, unknown_caches
