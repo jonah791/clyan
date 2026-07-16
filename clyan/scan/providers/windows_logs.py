@@ -7,6 +7,7 @@ Windows 事件日志 (.evtx) 存储在 C:/Windows/System32/winevt/Logs，
 import os
 from . import CacheItem, SafetyLevel, register
 from ...utils.size import format_size
+from ...core.config import is_protected
 
 
 def _scan_windows_logs(root: str) -> list[CacheItem]:
@@ -16,6 +17,8 @@ def _scan_windows_logs(root: str) -> list[CacheItem]:
     if not os.path.isdir(log_dir):
         return results
 
+    if is_protected(log_dir):
+        return results
     total_size = 0
     log_files = []
     try:

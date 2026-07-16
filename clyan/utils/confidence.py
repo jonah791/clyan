@@ -189,6 +189,18 @@ def compute_and_attach(item: dict) -> None:
             item.get("provider", ""), item.get("path", ""),
         )
     score, reasons = compute(item)
+    # Apply behavioral learning adjustment (v1.0.0+)
+    try:
+        from ..learning import adjust_confidence
+        provider = item.get("provider", "")
+        extra = item.get("extra", {})
+        adjusted = adjust_confidence(provider, score / 100.0, extra)
+        if abs(adjusted - score / 100.0) > 0.01:
+            delta = adjusted - score / 100.0
+            reasons.append(f"行为学习调整 {delta:+.0%}")
+            score = adjusted * 100.0
+    except Exception:
+        pass
     item["confidence"] = score
     item["reason"] = "；".join(reasons)
     # Attach impact warning

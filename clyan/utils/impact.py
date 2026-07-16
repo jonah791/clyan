@@ -470,6 +470,113 @@ _IMPACT_DB: dict[str, tuple[list[str], list[str], str]] = {
         ["npm", "node"],
         "high",
     ),
+
+    # === App caches ===
+    "discord": (
+        ["Discord cache cleared -- may clear login state"],
+        ["discord"],
+        "low",
+    ),
+    "slack": (
+        ["Slack cache cleared -- may clear login state"],
+        ["slack"],
+        "low",
+    ),
+    "teams": (
+        ["Teams cache cleared -- may clear login state"],
+        ["microsoft teams"],
+        "low",
+    ),
+    "zoom": (
+        ["Zoom cache cleared -- recordings and history may be lost"],
+        ["zoom"],
+        "low",
+    ),
+    "wechat": (
+        ["WeChat cache cleared -- chat images and files may be lost"],
+        ["wechat"],
+        "medium",
+    ),
+    "spotify": (
+        ["Spotify offline cache cleared -- must re-download songs"],
+        ["spotify"],
+        "high",
+    ),
+    "whatsapp": (
+        ["WhatsApp cache cleared -- media files may be lost"],
+        ["whatsapp"],
+        "medium",
+    ),
+    "obsidian": (
+        ["Obsidian cache cleared -- may affect search speed temporarily"],
+        ["obsidian"],
+        "low",
+    ),
+    "store_cache": (
+        ["Windows Store cache cleared -- auto-rebuilds"],
+        ["microsoft store"],
+        "none",
+    ),
+    "xbox_cache": (
+        ["Xbox app cache cleared -- auto-rebuilds"],
+        ["xbox"],
+        "none",
+    ),
+    "onedrive_cache": (
+        ["OneDrive cache cleared -- will re-download on sync"],
+        ["onedrive"],
+        "low",
+    ),
+    "recent_items": (
+        ["Recent items list cleared -- no data loss"],
+        [],
+        "none",
+    ),
+    "font_cache": (
+        ["Windows font cache cleared -- auto-rebuilds"],
+        ["windows"],
+        "none",
+    ),
+    "cleanmgr": (
+        ["Windows Disk Cleanup tool available"],
+        ["windows"],
+        "none",
+    ),
+    "android": (
+        ["Android SDK / emulator cache cleared -- may need rebuild"],
+        ["android studio"],
+        "medium",
+    ),
+    "vsstudio": (
+        ["Visual Studio cache cleared -- may need rebuild"],
+        ["visual studio"],
+        "low",
+    ),
+    "old_windows_backups": (
+        ["Old Windows installation files deleted -- cannot roll back"],
+        ["windows recovery"],
+        "none",
+    ),
+    "windows_old": (
+        ["Old Windows installation files deleted -- cannot roll back"],
+        ["windows recovery"],
+        "none",
+    ),
+    "dotnet_ngen_deep": (
+        [".NET Native Images cache cleared -- auto-rebuilt"],
+        ["dotnet"],
+        "none",
+    ),
+    "empty_dirs": (
+        ["Empty directories deleted -- no data loss"],
+        [],
+        "none",
+    ),
+    "winapp2": (
+        ["Winapp2 cleaner definition -- varies by section"],
+        [],
+        "unknown",
+    ),
 }
 
 
@@ -540,14 +647,7 @@ def impact_for(provider: str, path: str = "", extra: dict | None = None) -> dict
                 "recovery_cost": cost,
             }
 
-    # Default: unknown — conservative
-    return {
-        "would_break": [f"Unknown impact for {provider}"],
-        "would_affect": [],
-        "recovery_cost": "unknown",
-    }
-
-
+   
 def ecosystem_for(provider: str, path: str = "") -> str:
     """Return the ecosystem group for a cache item.
     
@@ -558,26 +658,32 @@ def ecosystem_for(provider: str, path: str = "") -> str:
     
     # Provider-based mapping
     _ECOSYSTEM_MAP = {
-        "node": {"npm_cache", "pnpm_cache", "bun_cache", "node_modules", "npm_prune",
-                 "node_waste", "build_artifacts", "npm_deep"},
+        "node": {"npm_cache", "pnpm_cache", "bun_cache", "node_modules",
+                 "node_waste", "build_artifacts", "npm_deep", "npm_prune"},
         "python": {"pip_cache", "python", "venv", "uv_cache", "pip_deep"},
         "rust": {"cargo_registry", "target", "rust"},
         "go": {"go_cache"},
-        "java": {"gradle_cache", "maven_cache", "gradle"},
-        "dotnet": {"nuget_cache"},
+        "java": {"gradle_cache", "maven_cache", "gradle", "maven"},
+        "dotnet": {"nuget_cache", "dotnet_ngen", "dotnet_ngen_deep"},
         "browser": {"browser_cache", "browser_deep", "app_cache", "browser"},
         "ide": {"vscode_cache", "vscode_extensions", "jetbrains_cache",
-                 "jetbrains_tmp", "ide"},
-        "windows": {"windows_installer", "dism_cleanup", "system_temp", "windows_update", "winsxs",
-                     "delivery_optimization", "software_distribution",
+                 "jetbrains_tmp", "ide", "android", "vsstudio"},
+        "windows": {"system_temp", "windows_update", "winsxs", "win_deep",
+                     "delivery_optimization", "delivery_opt", "delivery_opt_deep",
+                     "software_distribution", "windows_installer", "dism_cleanup",
                      "recycle_bin", "prefetch", "thumbnail_cache",
-                     "old_windows", "defender_cache", "wer_reports",
-                     "search_index", "dotnet_ngen", "windows_extra",
-                     "windows_system", "system", "win_deep", "driver_store"},
-        "ml": {"ml_cache", "docker_images"},
+                     "old_windows", "windows_old", "defender_cache",
+                     "wer_reports", "search_index", "dotnet_ngen",
+                     "windows_extra", "windows_system", "system",
+                     "driver_store", "cleanmgr", "font_cache",
+                     "windows_logs", "empty_dirs"},
+        "app": {"discord", "slack", "teams", "teams_cache", "zoom", "wechat",
+                "spotify", "whatsapp", "obsidian", "store_cache",
+                "xbox_cache", "onedrive_cache", "recent_items"},
+        "ml": {"ml_cache", "docker_images", "docker"},
         "build": {"build_artifacts", "build_artifacts_file"},
-        "other": {"small_files", "vm_caches", "windows_logs", "empty_dirs", "gpu_caches", "unknown_caches"},
-        "windows": {"...windows already has full set..."},
+        "game": {"gpu_caches"},
+        "other": {"small_files", "vm_caches", "unknown_caches", "winapp2", "flutter"},
     }
     
     for ecosystem, providers in _ECOSYSTEM_MAP.items():

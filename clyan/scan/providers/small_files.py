@@ -16,6 +16,7 @@ import os
 import time
 from . import CacheItem, SafetyLevel, register
 from ...utils.scanner_base import safe_walk
+from ...core.config import is_protected
 from ...utils.size import format_size
 
 
@@ -100,6 +101,8 @@ def _scan_small_files(root: str) -> list[CacheItem]:
             for f in files:
                 fpath = os.path.join(dirpath, f)
                 try:
+                    if is_protected(fpath):
+                        continue
                     fstat = os.stat(fpath)
                 except (OSError, PermissionError):
                     continue

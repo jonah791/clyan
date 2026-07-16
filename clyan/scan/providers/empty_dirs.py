@@ -9,6 +9,7 @@ import time
 from . import CacheItem, SafetyLevel, register
 from ...utils.size import format_size
 from ...utils.scanner_base import safe_walk
+from ...core.config import is_protected
 
 # 跳过的目录名
 _SKIP_EMPTY = {
@@ -53,6 +54,11 @@ def _scan_empty_dirs(root: str) -> list[CacheItem]:
     except Exception:
         pass
 
+    if not empty_dirs:
+        return results
+
+    # Filter out protected directories
+    empty_dirs = [ed for ed in empty_dirs if not is_protected(ed["path"])]
     if not empty_dirs:
         return results
 
