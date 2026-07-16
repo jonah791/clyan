@@ -990,7 +990,6 @@ def main() -> None:
             phases = {1: pipe.phase1, 2: pipe.phase2_garbage, 3: pipe.phase3_deep}
             result = phases[phase]()
             # Pretty print
-            import json
             label = result.get("label", f"Phase {phase}")
             print(json.dumps(result, ensure_ascii=False, indent=2))
             return
