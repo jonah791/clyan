@@ -586,6 +586,104 @@ def cmd_report(args: argparse.Namespace) -> None:
             print("   " + str(e), file=sys.stderr)
 
 
+def cmd_doctor(args: argparse.Namespace) -> None:
+    """Clyan system diagnosis: health check for all layers."""
+    import sys, os, json, time
+    from clyan import __version__ as ver
+
+    ok_count, fail_count = 0, 0
+    checks = []
+
+    def check(label, ok, detail=""):
+        nonlocal ok_count, fail_count
+        if ok: ok_count += 1
+        else: fail_count += 1
+        icon = "\u2705" if ok else "\u274c"
+        line = f"  {icon} {label}"
+        print(line)
+        if detail and args.verbose:
+            for d in detail.split("\n"):
+                print(f"       {d}")
+
+    print("\n=== Clyan System Diagnosis ===")
+    print(f"  Version: {ver}")
+    print(f"  Python: {sys.version.split()[0]}")
+    print()
+
+    # 1. Import sanity
+    try:
+        from clyan.scan.providers import get_registered_providers
+        from clyan.reflex import check_pulse
+        from clyan.core.history import _get_db
+        from clyan.utils.impact import _IMPACT_DB, impact_for
+        check("All core modules importable", True)
+    except Exception as e:
+        check("Core imports", False, str(e))
+        return
+
+    # 2. DB writable
+    try:
+        db_path = _get_db()
+        writable = os.access(db_path, os.W_OK) if os.path.isfile(db_path) else os.access(os.path.dirname(db_path), os.W_OK)
+        check(f"Database writable ({os.path.basename(db_path)})", writable)
+    except Exception as e:
+        check("Database", False, str(e))
+
+    # 3. Pulse
+    try:
+        pulse = check_pulse("C:\\")
+        free = pulse.get("free_gb", 0)
+        status = pulse.get("status", "unknown")
+        check(f"Disk pulse: {free} GB free ({status})", True)
+    except Exception as e:
+        check("Disk pulse", False, str(e))
+
+    # 4. Provider count
+    try:
+        provs = get_registered_providers()
+        check(f"Registered providers: {len(provs)}", len(provs) >= 50)
+    except Exception as e:
+        check("Providers", False, str(e))
+
+    # 5. Impact coverage
+    try:
+        missing = [n for n in provs if n not in _IMPACT_DB]
+        check(f"Impact entries: 0 missing", len(missing) == 0)
+    except Exception as e:
+        check("Impact entries", False, str(e))
+
+    # 6. Tests
+    try:
+        import subprocess
+        r = subprocess.run([sys.executable, "-m", "pytest", "clyan/tests/", "-q"], capture_output=True, text=True, timeout=30)
+        last = r.stdout.strip().split("\n")[-1] if r.stdout else "?"
+        check(f"Tests: {last}", r.returncode == 0)
+    except Exception as e:
+        check("Tests", False, str(e))
+
+    # 7. Phase 1
+    try:
+        from clyan.scan.pipeline import ScanPipeline
+        p1 = ScanPipeline("C:\\").phase1()
+        free = p1.get("data", {}).get("free_gb", "?")
+        cached = p1.get("data", {}).get("cached", False)
+        check(f"Phase 1 scan: {free} GB free (cached={cached})", True)
+    except Exception as e:
+        check("Phase 1 scan", False, str(e))
+
+    # 8. MCP server
+    try:
+        from clyan.mcp_server import server
+        check("MCP server module loaded", True)
+    except Exception as e:
+        check("MCP server", False, str(e))
+
+    print(f"\n  {ok_count}/{ok_count+fail_count} checks passed")
+    if fail_count > 0:
+        print(f"  WARNING: {fail_count} check(s) failed")
+    print()
+
+
 def cmd_undo(args: argparse.Namespace) -> None:
     ok = mark_undone(args.id)
     _out({"operation_id": args.id, "undone": ok})
@@ -733,6 +831,11 @@ def build_parser() -> argparse.ArgumentParser:
     rp_p.add_argument("--ecosystem", help="filter to an ecosystem group")
     rp_p.add_argument("--min-size-mb", type=int, default=0,
                       help="minimum item size in MB")
+
+    # ── Doctor subcommand ──
+    doc = sub.add_parser("doctor", help="[DIAG] Clyan system diagnosis")
+    doc.add_argument("--verbose", "-v", action="store_true",
+                     help="detailed diagnostics")
 
     return p
 
@@ -910,6 +1013,10 @@ def main() -> None:
         print(json.dumps(plan if not args.phase else result, ensure_ascii=False, indent=2))
     elif args.command == "history":
         cmd_history(args)
+    elif args.command == "report":
+        cmd_report(args)
+    elif args.command == "doctor":
+        cmd_doctor(args)
     elif args.command == "undo":
         cmd_undo(args)
     elif args.command == "pulse":

@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "clyan": {
+      "description": "AI-driven disk cleaner — scan, analyze, reclaim",
+      "command": "python3",
+      "args": ["-m", "clyan", "mcp"],
+      "env": {},
+      "disabled": false,
+      "autoApprove": [
+        "check_disk_pulse",
+        "auto_clear_safe",
+        "scan_disk",
+        "system_health"
+      ]
+    }
+  }
+}
