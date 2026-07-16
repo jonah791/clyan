@@ -24,6 +24,23 @@ def _scan_npm_deep(root: str) -> list[CacheItem]:
     if not os.path.isdir(npm_cache_dir):
         return results
 
+
+def _quick_dir_size(path: str) -> int:
+    """Fast scandir-based directory size (single pass, no double walk)."""
+    total = 0
+    try:
+        for entry in os.scandir(path):
+            if entry.is_file():
+                try:
+                    total += entry.stat().st_size
+                except Exception:
+                    pass
+            elif entry.is_dir():
+                total += _quick_dir_size(entry.path)
+    except Exception:
+        pass
+    return total
+
     # ── 1. _npx/ — npx 单次二进制 ──
     npx_dir = os.path.join(npm_cache_dir, "_npx")
     if os.path.isdir(npx_dir):
@@ -72,51 +89,50 @@ def _scan_npm_deep(root: str) -> list[CacheItem]:
     # ── 2. _cacache/ — 内容寻址缓存 ──
     cacache_dir = os.path.join(npm_cache_dir, "_cacache")
     if os.path.isdir(cacache_dir):
-        sz = dir_total(cacache_dir)
-        if sz > 0:
-            # 按年份分组统计（目录 mtime）
-            try:
-                year_sizes = {}
-                for entry in os.listdir(cacache_dir):
-                    ep = os.path.join(cacache_dir, entry)
-                    if os.path.isdir(ep):
-                        try:
-                            mtime = os.path.getmtime(ep)
-                            year = time.strftime("%Y", time.localtime(mtime))
-                            year_sizes[year] = year_sizes.get(year, 0) + dir_total(ep)
-                        except Exception:
-                            year_sizes.setdefault("unknown", 0)
-                            year_sizes["unknown"] += dir_total(ep)
-            except Exception:
-                year_sizes = {}
+        # 单次 scandir 遍历，避免多次 dir_total 调用
+        year_sizes = {}
+        total_sz = 0
+        try:
+            for entry in os.scandir(cacache_dir):
+                if entry.is_dir():
+                    sub_sz = _quick_dir_size(entry.path)
+                    total_sz += sub_sz
+                    try:
+                        yr = time.strftime("%Y", time.localtime(entry.stat().st_mtime or os.path.getmtime(entry.path)))
+                    except Exception:
+                        yr = "unknown"
+                    year_sizes[yr] = year_sizes.get(yr, 0) + sub_sz
+        except Exception:
+            pass
+        sz = total_sz
 
-            # 估算老旧版本占比
-            total_old = sum(sz for yr, sz in year_sizes.items()
-                            if yr.isdigit() and int(yr) < 2025)
-            old_ratio = total_old / sz if sz > 0 else 0
+        # 估算老旧版本占比
+        total_old = sum(sz for yr, sz in year_sizes.items()
+                        if yr.isdigit() and int(yr) < 2025)
+        old_ratio = total_old / sz if sz > 0 else 0
 
-            note_parts = ["npm 包缓存（内容寻址）"]
-            for yr, ysz in sorted(year_sizes.items()):
-                note_parts.append(f"{yr}: {format_size(ysz)}")
-            if old_ratio > 0.5:
-                note_parts.append(f"~{int(old_ratio*100)}% 为旧版本包")
+        note_parts = ["npm 包缓存（内容寻址）"]
+        for yr, ysz in sorted(year_sizes.items()):
+            note_parts.append(f"{yr}: {format_size(ysz)}")
+        if old_ratio > 0.5:
+            note_parts.append(f"~{int(old_ratio*100)}% 为旧版本包")
 
-            results.append(CacheItem(
-                path=cacache_dir,
-                size=sz,
-                provider="npm_deep",
-                label="npm 包缓存（按版本）",
-                safety=SafetyLevel.SAFE,
-                extra={
-                    "type": "cacache",
-                    "year_breakdown": year_sizes,
-                    "old_version_ratio": round(old_ratio, 2),
-                    "note": " ".join(note_parts),
-                    "rebuild_cost": "high" if old_ratio < 0.3 else (
-                        "medium" if old_ratio < 0.7 else "low"
-                    ),
-                },
-            ))
+        results.append(CacheItem(
+            path=cacache_dir,
+            size=sz,
+            provider="npm_deep",
+            label="npm 包缓存（按版本）",
+            safety=SafetyLevel.SAFE,
+            extra={
+                "type": "cacache",
+                "year_breakdown": year_sizes,
+                "old_version_ratio": round(old_ratio, 2),
+                "note": " ".join(note_parts),
+                "rebuild_cost": "high" if old_ratio < 0.3 else (
+                    "medium" if old_ratio < 0.7 else "low"
+                ),
+            },
+        ))
 
     # ── 3. npm global node_modules ──
     npm_global = os.path.join(appdata, "npm", "node_modules")
@@ -149,6 +165,23 @@ def _scan_npm_deep(root: str) -> list[CacheItem]:
             ))
 
     return results
+
+
+def _quick_dir_size(path: str) -> int:
+    """Fast scandir-based directory size (single pass, no double walk)."""
+    total = 0
+    try:
+        for entry in os.scandir(path):
+            if entry.is_file():
+                try:
+                    total += entry.stat().st_size
+                except Exception:
+                    pass
+            elif entry.is_dir():
+                total += _quick_dir_size(entry.path)
+    except Exception:
+        pass
+    return total
 
 
 register("npm_deep", _scan_npm_deep)
