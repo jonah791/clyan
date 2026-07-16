@@ -17,6 +17,50 @@ from .reflex import _refresh_pulse_cache
 
 
 def reclaim(path: str = "C:\\") -> dict:
+    """Full reclaim scan on one or all drives.
+    
+    Args:
+      path: single path like "C:\\" or "all" to scan all available drives
+    """
+    if path.lower() == "all":
+        # Scan all available drives
+        drives = []
+        for letter in "DEFGHIJKLMNOPQRSTUVWXYZ":
+            dp = f"{letter}:\\"
+            if os.path.isdir(dp):
+                drives.append(dp)
+        if not drives:
+            return {"error": "No additional drives found", "path": "all", "phases": []}
+        
+        combined = {"path": "all", "total_size": 0, "total_items": 0,
+                     "phases": [], "recommendation": "", "scan_times_ms": {}}
+        for drive in drives:
+            try:
+                plan = _reclaim_single(drive)
+                for phase in plan.get("phases", []):
+                    # Merge phases across drives
+                    for cp in combined["phases"]:
+                        if cp["cost"] == phase["cost"]:
+                            cp["item_count"] += phase["item_count"]
+                            cp["total_size"] += phase["total_size"]
+                            # Don't merge items (too large)
+                            break
+                    else:
+                        combined["phases"].append(phase)
+                combined["total_size"] += plan["total_size"]
+                combined["total_items"] += plan["total_items"]
+                combined["scan_times_ms"][drive] = plan.get("scan_times_ms", {})
+            except Exception as e:
+                combined["scan_times_ms"][drive] = str(e)
+        
+        combined["total_size_human"] = format_size(combined["total_size"])
+        combined["recommendation"] = _make_recommendation(combined["phases"], combined["total_size"])
+        return combined
+    
+    return _reclaim_single(path)
+
+
+def _reclaim_single(path: str) -> dict:
     """Full reclaim scan: all scanners → aggregate → dedupe → phase plan.
 
     Returns a dict with:

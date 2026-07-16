@@ -358,6 +358,27 @@ _IMPACT_DB: dict[str, tuple[list[str], list[str], str]] = {
         ["docker"],
         "low",
     ),
+    "gpu_caches:directx_shader_cache": (
+        ["DirectX shader cache cleared -- auto-rebuilt on next game launch"],
+        ["directx", "games"],
+        "low",
+    ),
+    "gpu_caches:nvidia_dxcache": (
+        ["NVIDIA shader cache cleared -- auto-rebuilt on next game launch"],
+        ["nvidia", "games"],
+        "low",
+    ),
+    "gpu_caches:steam_cache": (
+        ["Steam cache cleared -- Steam will re-download"],
+        ["steam"],
+        "low",
+    ),
+    "gpu_caches:system_restore": (
+        ["System restore points deleted -- cannot undo system changes"],
+        ["windows recovery"],
+        "none",
+    ),
+
     "windows_logs": (
         ["Windows Event Logs cleared — system will recreate new logs"],
         ["windows"],
@@ -538,7 +559,7 @@ def ecosystem_for(provider: str, path: str = "") -> str:
                      "windows_system", "system", "win_deep", "driver_store"},
         "ml": {"ml_cache", "docker_images"},
         "build": {"build_artifacts", "build_artifacts_file"},
-        "other": {"small_files", "vm_caches", "windows_logs", "empty_dirs"},
+        "other": {"small_files", "vm_caches", "windows_logs", "empty_dirs", "gpu_caches"},
         "windows": {"...windows already has full set..."},
     }
     

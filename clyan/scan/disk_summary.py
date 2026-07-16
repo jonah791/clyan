@@ -101,7 +101,7 @@ def _classify_usage(name: str) -> str:
     return "其他"
 
 
-def _scan_disk(path: str = "C:\\", depth: int = 2, top_n: int = 15) -> ScanResult:
+def scan_disk(path: str = "C:\\", depth: int = 2, top_n: int = 15) -> ScanResult:
     start = time.time()
     result = ScanResult()
 
@@ -154,6 +154,3 @@ def _scan_disk(path: str = "C:\\", depth: int = 2, top_n: int = 15) -> ScanResul
     return result
 
 
-def scan_disk(path: str = "C:\\", depth: int = 2) -> ScanResult:
-    """Disk summary: total/used/free + directory tree + reclaimable estimate."""
-    return _scan_disk(path=path, depth=depth)
