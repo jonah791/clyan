@@ -10,10 +10,9 @@ import os
 import time
 from typing import Any
 from .utils.size import format_size
-from .utils.scanner_base import _enrich
-from .utils.confidence import compute_and_attach
 from .clean.execute import delete_items
 from .reflex import _refresh_pulse_cache
+from .report import build_report, _enrich_items
 
 
 def reclaim(path: str = "C:\\") -> dict:
@@ -109,45 +108,12 @@ def _reclaim_single(path: str) -> dict:
         elif not p:
             deduped.append(item)
 
-    # 3. Enrich all items
-    for item in deduped:
-        try:
-            _enrich(item)
-            compute_and_attach(item)
-        except Exception:
-            item.setdefault("confidence", 0.0)
-            item.setdefault("reason", "")
-
-    # 4. Sort by recovery_cost, then by size descending
-    cost_order = {"none": 0, "low": 1, "medium": 2, "high": 3, "unknown": 4}
-    deduped.sort(key=lambda i: (cost_order.get(i.get("recovery_cost", "unknown"), 99),
-                                -i.get("size", 0)))
-
-    # 5. Group into phases
-    phases = []
-    phase_items: dict[str, list[dict]] = {}
-    for item in deduped:
-        cost = item.get("recovery_cost", "unknown")
-        phase_items.setdefault(cost, []).append(item)
-
-    for cost in ["none", "low", "medium", "high", "unknown"]:
-        items = phase_items.get(cost, [])
-        if items:
-            total = sum(i.get("size", 0) for i in items)
-            phases.append({
-                "cost": cost,
-                "item_count": len(items),
-                "total_size": total,
-                "total_size_human": format_size(total),
-                "items": items[:50],  # preview first 50
-                "ecosystem_breakdown": _ecosystem_breakdown(items),
-            })
-
-    total_size = sum(i.get("size", 0) for i in deduped)
-    total_items = len(deduped)
-
-    # 6. Recommendation
-    recommendation = _make_recommendation(phases, total_size)
+    # 3-6. Use report layer: enrich + sort + phase + recommendation
+    report = build_report(deduped, path)
+    phases = report["phases"]
+    total_size = report["total_size"]
+    total_items = report["total_items"]
+    recommendation = report["recommendation"]
 
     # 7. Update pulse cache
     _refresh_pulse_cache(path, {"items": deduped})
@@ -161,50 +127,11 @@ def _reclaim_single(path: str) -> dict:
         "recommendation": recommendation,
         "scan_times_ms": scan_times,
         "ellapsed_ms": (time.time() - start) * 1000,
+        "items": deduped[:50],
     }
 
 
-def _ecosystem_breakdown(items: list[dict]) -> list[dict]:
-    """Return ecosystem grouping for a set of items."""
-    eco = {}
-    for item in items:
-        e = item.get("ecosystem", "other")
-        eco.setdefault(e, {"count": 0, "size": 0})
-        eco[e]["count"] += 1
-        eco[e]["size"] += item.get("size", 0)
-    result = []
-    for e, v in sorted(eco.items(), key=lambda x: -x[1]["size"]):
-        result.append({
-            "ecosystem": e,
-            "count": v["count"],
-            "size": v["size"],
-            "size_human": format_size(v["size"]),
-        })
-    return result
 
-
-def _make_recommendation(phases: list[dict], total_size: int) -> str:
-    """Generate a human-readable recommendation."""
-    # Find the first non-empty phase
-    parts = []
-    total_gb = total_size / 1e9
-    parts.append(f"Total reclaimable: {format_size(total_size)} ({total_gb:.1f} GB).")
-
-    for phase in phases:
-        cost = phase["cost"]
-        sz = phase["total_size_human"]
-        cnt = phase["item_count"]
-        if cost == "none":
-            parts.append(f"Phase 1 (cost=none): {cnt} items, {sz} — 零风险，可立即执行。")
-        elif cost == "low":
-            parts.append(f"Phase 2 (cost=low): {cnt} items, {sz} — 低风险，建议 Phase 1 后执行。")
-        elif cost == "medium":
-            parts.append(f"Phase 3 (cost=medium): {cnt} items, {sz} — 中风险，需确认后执行。")
-        elif cost == "high":
-            parts.append(f"Phase 4 (cost=high): {cnt} items, {sz} — 高风险，谨慎评估后执行。")
-
-    parts.append("建议: 按 Phase 1→2→3→4 顺序执行，每阶段后验证系统正常再继续。")
-    return " ".join(parts)
 
 
 def execute_phase(plan: dict, phase_cost: str, use_trash: bool = True,

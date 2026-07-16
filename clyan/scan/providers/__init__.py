@@ -53,16 +53,27 @@ def register_provider(
     default_cost: str = "unknown",
     needs_protection: bool = True,
 ):
-    """Decorator that registers a provider and auto-configures all layers.
+    """Register a scan provider with full three-layer pipeline.
 
-    Layers auto-handled:
-      1. Core: registers scan function ✓
-      2. Protection: wraps function with is_protected filtering ✓
-      3. Classification: sets SafetyLevel from default_safety ✓
-      4. Signals: attached by _attach_signals in detect_all ✓
-      5. Impact: auto-added to _IMPACT_DB (lazy) ✓
-      6. Ecosystem: mapped from 'ecosystem' param ✓
-      7. Learning: attached by compute_and_attach pipeline ✓
+    ╔══════════════════════════════════════════════════╗
+    ║  三层架构: 扫描层 → 安全层 → 汇报层              ║
+    ╠══════════════════════════════════════════════════╣
+    ║ Layer 1 扫描层: return (path, size) tuples      ║
+    ║   → 纯发现，不做判断                             ║
+    ╠══════════════════════════════════════════════════╣
+    ║ Layer 2 安全层: @register_provider 自动处理      ║
+    ║   → is_protected 过滤                            ║
+    ║   → SafetyLevel 分配                             ║
+    ║   → Signals: age_days / tool_installed           ║
+    ║   → Impact: would_break / recovery_cost          ║
+    ║   → Ecosystem 分组                               ║
+    ║   → Confidence 评分 + Learning 调整              ║
+    ╠══════════════════════════════════════════════════╣
+    ║ Layer 3 汇报层: build_report()                   ║
+    ║   → 结构化 JSON                                  ║
+    ║   → 分阶段执行计划 (Phase 1/2/3/4)              ║
+    ║   → 推荐策略                                    ║
+    ╚══════════════════════════════════════════════════╝
 
     Usage:
         @register_provider("my_provider", ecosystem="app", default_cost="low")
