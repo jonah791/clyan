@@ -359,10 +359,21 @@ _IMPACT_DB: dict[str, tuple[list[str], list[str], str]] = {
         "low",
     ),
     "unknown_caches": (
-        ["Unknown application cache cleared — may need re-download or re-login"],
+        ["Unknown cache may be safely deleted; unknown data should NOT be deleted without verification"],
         [],
         "unknown",
     ),
+    "unknown_caches:unknown_app_data": (
+        ["⚠ UNKNOWN DATA DIRECTORY — could contain app config, credentials, or user data"],
+        [],
+        "high",
+    ),
+    "unknown_caches:unknown_app_cache": (
+        ["Unknown app cache could be safely cleaned — app may need to re-download"],
+        [],
+        "low",
+    ),
+
 
     "gpu_caches:directx_shader_cache": (
         ["DirectX shader cache cleared -- auto-rebuilt on next game launch"],
