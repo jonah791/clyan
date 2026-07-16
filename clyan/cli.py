@@ -711,6 +711,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--path", nargs="?", default="C:\\",
                     help="path to scan (default: C:\\)")
     sp_sub = sp.add_subparsers(dest="scan_type")
+    sp_sub.required = False
     sp.set_defaults(scan_type=None)
 
     sp_space = sp_sub.add_parser("space", help="[legacy] analyze directory space usage")
