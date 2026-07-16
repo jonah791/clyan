@@ -978,8 +978,7 @@ def main() -> None:
         _VERBOSE = True
         CLYAN_CONFIG["verbose"] = True
     if getattr(args, "json", False):
-        _out.json_mode = True
-        CLYAN_CONFIG["json"] = True
+            CLYAN_CONFIG["json"] = True
 
     if args.command == "scan":
         # If --phase specified, use pipeline
