@@ -1,230 +1,195 @@
-"""未知缓存检测 — 扫描未被任何 provider 覆盖的目录。
+"""未知目录深度分析 — 通过文件内容采样判断安全等级。
 
-原理:
-  1. 列出 %USERPROFILE% 下所有 .xxx 目录和 %LOCALAPPDATA% 下所有应用目录
-  2. 检查每个目录是否被现有 provider 覆盖
-  3. 未覆盖的目录 → 报告为"未知缓存"，让 AI 自行判断
-  
-这就是"catch-all" provider —— 不再需要逐个添加 app 缓存。
+不再"看目录名猜"，而是:
+  1. 列出 userprofile / LocalAppData / AppData 下未被覆盖的目录
+  2. 对每个目录 >10MB 的，采样内部文件类型分布
+  3. 根据文件类型推断用途: 缓存 / 配置 / 数据库 / 模型 / 混合
+  4. 接入现有安全体系 (is_protected / CacheItem / SafetyLevel)
 """
 
 import os
 import time
+from collections import Counter
 from . import CacheItem, SafetyLevel, register
 from ...utils.size import format_size
 from ...utils.dirtree import dir_total
+from ...utils.scanner_base import safe_walk
+from ...core.config import is_protected
 
 
-# 已知被覆盖的目录名（对应现有 provider）
-_KNOWN_COVERED = {
-    # Node.js
-    "npm-cache", "npm", "pnpm", "pnpm-store", "yarn", "yarn-cache",
-    "bun", ".bun", ".yarn", ".pnpm-store",
-    # Python
-    "pip", "uv", "poetry", "conda", ".conda",
-    # Rust
-    "cargo", ".cargo", ".rustup",
-    # Go
-    "go", ".go", "go-build",
-    # Java
-    ".gradle", "gradle", ".m2", "maven",
-    # .NET
-    ".nuget", "nuget",
-    # IDEs
-    "Code", ".vscode", "JetBrains", "IntelliJ", "PyCharm", "WebStorm",
-    "Rider", "CLion", "GoLand", "RustRover",
-    # Browsers
-    "Google", "Microsoft", "Mozilla", "Chromium", "Brave", "Vivaldi",
-    "Opera", "Waterfox", "Pale Moon", "SeaMonkey",
-    "Chrome", "Edge", "Firefox",
-    # Windows
-    "Microsoft", "Windows", "Temp", "WinSxS", "assembly",
-    "Installer", "DriverStore", "FontCache", "Fonts",
-    # App caches
-    "Discord", "Slack", "Teams", "Zoom", "WeChat",
-    "Spotify", "WhatsApp", "Obsidian", "Figma",
-    "Flutter", ".dart_tool", ".pub-cache",
-    "Android", ".android",
-    "Docker", ".docker",
-    # ML
-    "huggingface", ".huggingface", ".ollama", "ollama",
-    "pytorch", "tensorflow", "lm-studio", ".lm-studio",
-    # Game
-    "Steam", "EpicGamesLauncher", ".steam",
-    ".minecraft", "Minecraft",
-    # GPU
-    "NVIDIA", "AMD", "Intel", "D3DSCache",
-    # Caches we added
-    ".cache", ".cloakbrowser", ".agents", ".claude", ".codex",
-    ".astrbot_launcher", ".dartServer",
-    "DeepChat", "BaiduYunKernel", "BaiduYunGuanjia",
-    "DLSS Swapper", "BitComet",
-    "DDNet", "AionUi",
-    "BCUT", "@opencode-aidesktop-updater",
-    "CrashDumps", "WER",
-    "pip", "pip-deep",
-    # Known non-cache
-    "Desktop", "Documents", "Downloads", "Pictures", "Music", "Videos",
-    "Favorites", "Contacts", "Links", "Searches", "Saved Games",
-    "OneDrive", ".ssh", ".gnupg", ".aws", ".gcp", ".azure",
-    ".kube", ".config", ".local", ".git",
-}
+# 文件类型 -> 用途推断
+_CACHE_EXTS = {".whl", ".tgz", ".gz", ".zip", ".tar", ".rar", ".7z",
+               ".cache", ".tmp", ".temp", ".part", ".download"}
+_CONFIG_EXTS = {".json", ".yaml", ".yml", ".toml", ".ini", ".cfg",
+                ".conf", ".config", ".env", ".properties"}
+_DB_EXTS = {".db", ".sqlite", ".sqlite3", ".db3", ".ldb", ".logdb"}
+_MODEL_EXTS = {".bin", ".pt", ".pth", ".gguf", ".ggml", ".safetensors",
+               ".onnx", ".pb", ".h5", ".keras", ".pickle", ".pkl"}
+_CACHE_DIR_NAMES = {"cache", "caches", "temp", "tmp", "packages",
+                    "downloads", "archives", "blob_storage"}
+_DATA_DIR_NAMES = {"data", "databases", "db", "config", "settings",
+                   "store", "state", "backup", "archive", "sync",
+                   "sessions"}
 
 
-def _scan_unknown_caches(root: str) -> list[CacheItem]:
-    """Scan for directories that no existing provider covers."""
+def _sample_directory(dirpath, max_files=30):
+    ext_counter = Counter()
+    dir_names = set()
+    file_count = 0
+    try:
+        for dp, dn, fn in safe_walk(dirpath, max_depth=2):
+            dir_names.update(dn)
+            for f in fn:
+                file_count += 1
+                if file_count > max_files:
+                    break
+                _, ext = os.path.splitext(f)
+                if ext:
+                    ext_counter[ext.lower()] += 1
+            if file_count > max_files:
+                break
+    except Exception:
+        pass
+    has_cache_name = any(
+        any(cn in dn.lower() for cn in _CACHE_DIR_NAMES)
+        for dn in dir_names
+    )
+    has_data_name = any(
+        any(dn.lower().startswith(cn) or dn.lower() == cn for cn in _DATA_DIR_NAMES)
+        for dn in dir_names
+    )
+    return {
+        "file_count": file_count,
+        "ext_dist": ext_counter,
+        "has_cache_name": has_cache_name,
+        "has_data_name": has_data_name,
+    }
+
+
+def _classify(sample, size, age_days):
+    """Return (safety, type_str, note_str, cost_str)."""
+    ext = sample["ext_dist"]
+    total = max(sum(ext.values()), 1)
+    has_cache = sample["has_cache_name"]
+    has_data = sample["has_data_name"]
+    fc = sample["file_count"]
+
+    if fc == 0:
+        return SafetyLevel.SAFE, "empty_dir", "空目录，安全可删", "none"
+
+    cache_r = sum(ext.get(e, 0) for e in _CACHE_EXTS) / total
+    config_r = sum(ext.get(e, 0) for e in _CONFIG_EXTS) / total
+    db_r = sum(ext.get(e, 0) for e in _DB_EXTS) / total
+    model_r = sum(ext.get(e, 0) for e in _MODEL_EXTS) / total
+
+    top5 = [f"{e}({c})" for e, c in ext.most_common(5)]
+
+    if cache_r > 0.5:
+        return SafetyLevel.SAFE, "package_cache", \
+               f"包缓存 ({fc} 文件)", "high"
+    if model_r > 0.3 or (size > 500_000_000 and model_r > 0.1):
+        return SafetyLevel.CAUTION, "model_cache", \
+               f"ML 模型 ({fc} 文件)", "high"
+    if db_r > 0.3:
+        sl = SafetyLevel.UNSAFE if has_data else SafetyLevel.CAUTION
+        return sl, "database", f"数据库 ({fc} 文件)", "high"
+    if config_r > 0.5:
+        return SafetyLevel.UNSAFE, "config", f"配置文件 ({fc} 文件)", "high"
+    if has_data:
+        return SafetyLevel.CAUTION, "app_data", \
+               "含 data/store 子目录", "medium"
+    if has_cache:
+        return SafetyLevel.SAFE, "app_cache", \
+               "含 cache 子目录", "low"
+    if age_days > 180 and total < 10:
+        return SafetyLevel.SAFE, "old_data", \
+               f">180天未改 ({fc} 文件)", "low"
+
+    top_exts = ", ".join(top5[:4]) if top5 else "(无文件)"
+    return SafetyLevel.CAUTION, "mixed", \
+           f"{fc} 文件 [{top_exts}]", "unknown"
+
+
+def _scan_unknown_caches(root):
+    """Scan directories no existing provider covers."""
     results = []
     up = os.environ.get("USERPROFILE", "")
     local = os.environ.get("LOCALAPPDATA", "")
     roaming = os.environ.get("APPDATA", "")
     now = time.time()
 
-    # 1. Scan %USERPROFILE% for .xxx directories
-    dot_dirs = []
+    candidates = []
+
+    # ~/.xxx 目录
     if up and os.path.isdir(up):
         try:
-            for entry in os.listdir(up):
-                if entry.startswith(".") and os.path.isdir(os.path.join(up, entry)):
-                    name = entry.lstrip(".")
-                    if name not in _KNOWN_COVERED:
-                        dot_dirs.append(os.path.join(up, entry))
-        except (PermissionError, OSError):
+            for e in os.listdir(up):
+                if e.startswith("."):
+                    ep = os.path.join(up, e)
+                    if os.path.isdir(ep):
+                        candidates.append((ep, "~"))
+        except Exception:
             pass
 
-    # 2. Scan %LOCALAPPDATA% for unknown app dirs
-    local_dirs = []
+    # LocalAppData 下
     if local and os.path.isdir(local):
         try:
-            for entry in os.listdir(local):
-                ep = os.path.join(local, entry)
-                if os.path.isdir(ep):
-                    name = entry.lower()
-                    # Skip known covered, system, and dot dirs
-                    if any(ignore in name for ignore in [k.lower() for k in _KNOWN_COVERED]):
-                        continue
-                    if entry.startswith("."):
-                        continue
-                    local_dirs.append(ep)
-        except (PermissionError, OSError):
+            for e in os.listdir(local):
+                ep = os.path.join(local, e)
+                if os.path.isdir(ep) and not e.startswith("."):
+                    candidates.append((ep, "LocalAppData"))
+        except Exception:
             pass
 
-    # 3. Scan %APPDATA% for unknown app dirs  
-    roam_dirs = []
+    # AppData 下
     if roaming and os.path.isdir(roaming):
         try:
-            for entry in os.listdir(roaming):
-                ep = os.path.join(roaming, entry)
-                if os.path.isdir(ep):
-                    name = entry.lower()
-                    if any(ignore in name for ignore in [k.lower() for k in _KNOWN_COVERED]):
-                        continue
-                    if entry.startswith("."):
-                        continue
-                    roam_dirs.append(ep)
-        except (PermissionError, OSError):
+            for e in os.listdir(roaming):
+                ep = os.path.join(roaming, e)
+                if os.path.isdir(ep) and not e.startswith("."):
+                    candidates.append((ep, "AppData"))
+        except Exception:
             pass
 
-    # Check size of each unknown dir (timeout after 5s total)
-    check_start = time.time()
-    for dirpath, source_label in (
-        [(d, "~") for d in dot_dirs] +
-        [(d, "LocalAppData") for d in local_dirs] +
-        [(d, "AppData") for d in roam_dirs]
-    ):
-        if time.time() - check_start > 5:
-            break  # Don't spend too long
-
+    budget_end = time.time() + 5
+    for dpath, src in candidates:
         try:
-            sz = dir_total(dirpath)
+            sz = dir_total(dpath)
         except Exception:
             sz = 0
+        if time.time() > budget_end:
+            break
+        if sz < 10_000_000:
+            continue
 
-        if sz > 10_000_000:  # Only report >10 MB
-            name = os.path.basename(dirpath)
-            
-            # ── 安全分级 ──
-            # 根据目录名/路径判断是否可能是重要数据而非缓存
-            is_likely_data = False
-            data_reasons = []
-            
-            # 1. 名称包含 data/store/state 等关键词
-            name_lower = name.lower()
-            if any(k in name_lower for k in ["data", "store", "state", "db", "database",
-                                               "backup", "archive", "sync", "index"]):
-                is_likely_data = True
-                data_reasons.append("目录名含 data/store 关键词")
-            
-            # 2. 在 Roaming 下 (通常是应用配置/数据，不是缓存)
-            if source_label == "AppData":
-                is_likely_data = True
-                data_reasons.append("在 AppData/Roaming 下 (应用数据)")
-            
-            # 3. 包含已知数据子目录
-            data_subdirs = ["data", "store", "state", "db", "database", "backup",
-                           "config", "settings", "profile"]
-            try:
-                entries = [e.lower() for e in os.listdir(dirpath)[:50]]
-                for ds in data_subdirs:
-                    if ds in entries:
-                        is_likely_data = True
-                        data_reasons.append(f"含 '{ds}' 子目录")
-                        break
-            except Exception:
-                pass
-            
-            # 4. 非常新的目录 (<30天) 可能正在使用中
-            try:
-                mtime = os.path.getmtime(dirpath)
-                age_days = (time.time() - mtime) / 86400
-            except Exception:
-                age_days = -1
-            is_recent = age_days < 30 and age_days >= 0
-            
-            if is_likely_data or is_recent:
-                safety = SafetyLevel.UNSAFE if is_likely_data else SafetyLevel.CAUTION
-                note_parts = ["未被现有 provider 覆盖的目录"]
-                if is_likely_data:
-                    note_parts.append(f"⚠ 可能包含重要数据:" + "; ".join(data_reasons))
-                if is_recent:
-                    note_parts.append(f"最近使用 ({int(age_days)} 天前)")
-                note_parts.append(f"{format_size(sz)}，AI 需谨慎判断")
-                
-                results.append(CacheItem(
-                    path=dirpath, size=sz,
-                    provider="unknown_caches",
-                    label=f"未知数据: {name} ({source_label}, {format_size(sz)})",
-                    safety=safety,
-                    extra={
-                        "type": "unknown_app_data",
-                        "source": source_label,
-                        "dir_name": name,
-                        "age_days": int(age_days) if age_days >= 0 else -1,
-                        "data_warning": "; ".join(data_reasons) if data_reasons else None,
-                        "note": " ".join(note_parts),
-                        "rebuild_cost": "high",
-                    },
-                ))
-            else:
-                # 看起来像缓存 → SAFE
-                note = f"未被覆盖的 {source_label} 目录。"
-                if age_days >= 0:
-                    note += f"{int(age_days)} 天未修改，"
-                note += f"{format_size(sz)}。看起来像缓存，AI 可自行判断"
-                
-                results.append(CacheItem(
-                    path=dirpath, size=sz,
-                    provider="unknown_caches",
-                    label=f"未知缓存: {name} ({source_label}, {format_size(sz)})",
-                    safety=SafetyLevel.SAFE,
-                    extra={
-                        "type": "unknown_app_cache",
-                        "source": source_label,
-                        "dir_name": name,
-                        "age_days": int(age_days) if age_days >= 0 else -1,
-                        "note": note,
-                        "rebuild_cost": "low",
-                    },
-                ))
+        if is_protected(dpath):
+            continue
+
+        name = os.path.basename(dpath)
+        try:
+            age = (now - os.path.getmtime(dpath)) / 86400
+        except Exception:
+            age = -1
+
+        sample = _sample_directory(dpath)
+        safety, dtype, note, cost = _classify(sample, sz, age)
+
+        item = CacheItem(
+            path=dpath, size=sz,
+            provider="unknown_caches",
+            label=f"未知: {name} ({src}, {format_size(sz)})",
+            safety=safety,
+            extra={
+                "type": dtype,
+                "source": src, "dir_name": name,
+                "age_days": int(age) if age >= 0 else -1,
+                "file_count": sample["file_count"],
+                "has_cache_subdir": sample["has_cache_name"],
+                "has_data_subdir": sample["has_data_name"],
+                "rebuild_cost": cost, "note": note,
+            },
+        )
+        results.append(item)
 
     return results
 
