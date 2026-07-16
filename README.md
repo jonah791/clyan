@@ -31,6 +31,8 @@ Clyan 不做三件事：
 |----|---------|------------|
 | 包管理器缓存 | npm / pip / cargo / go / gradle / maven / nuget / pnpm / bun / uv | 12 |
 | 构建产物 | node_modules / .next / .angular / .vite / .nx / target / build | 20+ 模式 |
+| 游戏/GPU | DirectX / NVIDIA / AMD / Intel 着色器缓存 + Steam / Epic 启动器 | 6 |
+| 系统深度 | Windows 事件日志 / 系统还原点 / 空目录 / 零碎小文件 | 5 |
 | IDE 缓存 | VS Code / JetBrains / Eclipse / IDEA 扩展+缓存 | 5 |
 | 浏览器 | Chrome / Edge / Firefox 完整缓存 + SQLite 深度清理 | 4 |
 | Windows 系统 | WinSxS / DISM / DriverStore / Installer / Update / Temp / WER / 缩略图 / 搜索索引 | 15 |
@@ -38,7 +40,7 @@ Clyan 不做三件事：
 | 应用缓存 | Discord / Slack / Teams / Zoom / WeChat / Spotify / WhatsApp / Obsidian / Flutter / Android | 12 |
 | ML/AI | HuggingFace Hub / Ollama / PyTorch / TensorFlow / LM Studio | 5 |
 | Winapp2 | 社区维护 3700+ 条清理器定义（自动按路径分类） | 动态 |
-| **总计** | | **53+ 固定 + 动态** |
+| **总计** | | **55+ 固定 + 动态** |
 
 ### ⚡ Reflex（磁盘反射弧）
 
@@ -174,7 +176,7 @@ clyan mcp
 | `check_disk_pulse` | ⚡ **反射 tick**：<1ms 健康检查 |
 | `auto_clear_safe` | ⚡ **反射 twitch**：零决策安全清理 |
 | `reclaim` | 📋 **统一回收**：全量→分阶段→执行 |
-| `scan_quick` | 全量扫描（53 provider） |
+| `scan_quick` | 全量扫描（55 provider） |
 | `scan_dev_garbage` | 开发者垃圾 + Winapp2 |
 | `scan_browsers` | 浏览器缓存 |
 | `scan_system` | Windows 系统临时文件 |
@@ -230,7 +232,7 @@ clyan mcp
 
 | 版本 | 亮点 |
 |------|------|
-| **v1.0.0-rc** | Reflex 反射弧 + reclaim 统一回收 + 行为学习 + CLI 美化 + MCP Resource |
+| **v1.0.0-rc** | Reflex 反射弧 + reclaim 统一回收 + 行为学习 + GPU 缓存 + 多驱动器 + 55 provider |
 | **v0.19.0** | Windows Installer 缓存 / DISM 集成 / npm 裁剪 / Winapp2 路径分类 |
 | **v0.18.0** | npm/pip 缓存深度分解（_npx / _cacache / 年龄分组） |
 | **v0.17.0** | Winapp2 导入引擎（3700+ 社区清理器） |

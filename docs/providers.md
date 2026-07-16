@@ -1,6 +1,6 @@
 # 缓存检测器开发指南
 
-> Clyan 的 provider 系统是可插拔的架构。每个 provider 是一个独立的扫描函数，通过 `register()` 注册后自动集成到扫描管线中。当前共 **53+ 固定 provider + 动态 Winapp2**。
+> Clyan 的 provider 系统是可插拔的架构。每个 provider 是一个独立的扫描函数，通过 `register()` 注册后自动集成到扫描管线中。当前共 **55+ 固定 provider + 动态 Winapp2**。
 
 ## 架构概览
 
@@ -119,6 +119,12 @@ from . import node, python_prov, ..., my_provider
 | `dism_cleanup` | DISM 命令级建议 | **StartComponentCleanup/ResetBase** |
 | `windows_extra` | 8 个子 provider | DO / Store / Teams / OneDrive / Defender / Xbox / 备份 |
 | `system_temp` | Temp 递归扫描 | 临时文件 + 孤儿目录 |
+
+### 游戏/GPU 缓存（6）
+| Provider | 扫描逻辑 | 说明 |
+|----------|---------|------|
+| `gpu_caches` | NVIDIA DXCache / GLCache / DirectX / AMD / Intel / Steam | **着色器缓存，游戏运行时自动重建** |
+| `gpu_caches:system_restore` | vssadmin 查询 | 系统还原点占用 |
 
 ### 深度裁剪 provider
 | Provider | 覆盖范围 | 分解方式 |
