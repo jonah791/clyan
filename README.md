@@ -253,7 +253,7 @@ clyan mcp
 
 | 版本 | 亮点 |
 |------|------|
-| **v1.0.0-rc** | 三层架构重构 + 全量安全覆盖 + report.py 汇报层 + 56 provider |
+| **v1.0.0** | 三层架构重构 + 全量安全覆盖 + report.py 汇报层 + 56 provider |
 | **v0.19.0** | Windows Installer 缓存 / DISM 集成 / npm 裁剪 / Winapp2 路径分类 |
 | **v0.18.0** | npm/pip 缓存深度分解（_npx / _cacache / 年龄分组） |
 | **v0.17.0** | Winapp2 导入引擎（3700+ 社区清理器） |
