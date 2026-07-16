@@ -333,6 +333,12 @@ _IMPACT_DB: dict[str, tuple[list[str], list[str], str]] = {
         ["windows"],
         "none",
     ),
+    "small_files": (
+        ["Small waste files deleted — no impact (desktop.ini, .log, .bak, .dmp)"],
+        [],
+        "none",
+    ),
+
     "flutter": (
         ["Flutter build cache cleared -- 'flutter pub get' may be needed"],
         ["flutter", "dart"],
@@ -490,6 +496,7 @@ def ecosystem_for(provider: str, path: str = "") -> str:
                      "windows_system", "system", "win_deep", "driver_store"},
         "ml": {"ml_cache", "docker_images"},
         "build": {"build_artifacts", "build_artifacts_file"},
+        "other": {"small_files"},
         "windows": {"...windows already has full set..."},
     }
     
