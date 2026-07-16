@@ -41,9 +41,62 @@ _provider_meta: dict[str, dict] = {}
 
 
 def register(name: str, fn: ProviderFunc):
-    """Legacy registration. Prefer @register_provider for new code."""
+    """Legacy registration. Prefer @register_provider for new code.
+    
+    Auto-assigns ecosystem + impact from provider name pattern.
+    """
     _registry[name] = fn
-    _provider_meta[name] = {"ecosystem": "other", "safety": "safe", "cost": "unknown"}
+    # Auto-detect ecosystem from name
+    eco = _auto_ecosystem(name)
+    _provider_meta[name] = {"ecosystem": eco, "safety": "safe", "cost": "unknown"}
+    # Auto-add impact entry if missing
+    try:
+        from ...utils.impact import _IMPACT_DB
+        if name not in _IMPACT_DB:
+            _IMPACT_DB[name] = (
+                [f"{name} cache cleared — impact varies"],
+                [],
+                "unknown",
+            )
+    except Exception:
+        pass
+
+
+def _auto_ecosystem(name: str) -> str:
+    """Infer ecosystem from provider name."""
+    n = name.lower()
+    if any(k in n for k in ["npm", "node", "pnpm", "bun", "yarn"]):
+        return "node"
+    if any(k in n for k in ["pip", "python", "venv", "uv"]):
+        return "python"
+    if any(k in n for k in ["cargo", "rust"]):
+        return "rust"
+    if any(k in n for k in ["go_"]):
+        return "go"
+    if any(k in n for k in ["gradle", "maven"]):
+        return "java"
+    if any(k in n for k in ["nuget", "dotnet"]):
+        return "dotnet"
+    if any(k in n for k in ["browser", "chrome", "edge", "firefox"]):
+        return "browser"
+    if any(k in n for k in ["vscode", "jetbrains", "ide", "android", "vsstudio"]):
+        return "ide"
+    if any(k in n for k in ["windows", "winsxs", "system", "win_", "dism",
+                              "driver", "prefetch", "thumbnail", "font",
+                              "recycle", "wer", "search", "cleanmgr",
+                              "delivery", "software_distribution", "store_cache",
+                              "defender", "xbox", "old_windows"]):
+        return "windows"
+    if any(k in n for k in ["discord", "slack", "teams", "zoom", "wechat",
+                              "spotify", "whatsapp", "obsidian"]):
+        return "app"
+    if any(k in n for k in ["ml_", "docker", "huggingface", "ollama"]):
+        return "ml"
+    if any(k in n for k in ["build", "target"]):
+        return "build"
+    if any(k in n for k in ["gpu", "shader", "steam"]):
+        return "game"
+    return "other"
 
 
 def register_provider(
@@ -132,7 +185,13 @@ def _attach_signals(items: list[CacheItem]) -> None:
 
 
 def detect_all(root: str) -> tuple[dict[str, list[CacheItem]], list[str]]:
-    """Run all registered providers, return (results, errors)."""
+    """Run all registered providers, return (results, errors).
+    
+    Universal Layer 2 (Safety):
+      - All items filtered through is_protected()
+      - Signals attached via _attach_signals
+    """
+    from ...core.config import is_protected
     results: dict[str, list[CacheItem]] = {}
     errors: list[str] = []
     with ThreadPoolExecutor(max_workers=min(8, len(_registry) or 1)) as pool:
@@ -142,6 +201,7 @@ def detect_all(root: str) -> tuple[dict[str, list[CacheItem]], list[str]]:
             try:
                 items = f.result()
                 if items:
+                    items = [i for i in items if not is_protected(i.path)]
                     results[name] = items
                     _attach_signals(items)
             except Exception as e:
