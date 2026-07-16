@@ -507,6 +507,85 @@ def cmd_history(args: argparse.Namespace) -> None:
         _out({"operations": rows})
 
 
+
+def cmd_report(args: argparse.Namespace) -> None:
+    """Generate AI-ready report of reclaimable space."""
+    import time, json
+    from .report import build_report
+    from .utils.size import format_size
+
+    t0 = time.time()
+    path = os.path.abspath(args.path)
+
+    # Run all scans
+    print("Scanning " + path + "...", file=sys.stderr)
+    from .scan.providers import detect_all
+    results, errors = detect_all(path)
+    from .scan.browser_deep import scan_browser_deep
+    browser_result = scan_browser_deep()
+    from .scan.system import scan_system
+    sys_result = scan_system()
+
+    # Collect all items into dicts
+    all_items = []
+    for name, items in results.items():
+        for item in items:
+            d = item.to_dict()
+            d["provider"] = name
+            all_items.append(d)
+    for item in browser_result.get("items", []):
+        item["provider"] = "browser"
+        all_items.append(item)
+    for item in sys_result.get("items", []):
+        item["provider"] = "system"
+        all_items.append(item)
+
+    # Build report
+    report = build_report(all_items, path)
+
+    # Apply filters
+    if args.cost:
+        report["phases"] = [p for p in report["phases"] if p["cost"] == args.cost]
+        report["items"] = [i for i in report["items"] if i.get("recovery_cost", "unknown") == args.cost]
+    if args.ecosystem:
+        report["phases"] = [p for p in report["phases"] if any(
+            e["ecosystem"] == args.ecosystem for e in p.get("ecosystem_breakdown", []))]
+        report["items"] = [i for i in report["items"] if i.get("ecosystem", "other") == args.ecosystem]
+    if args.min_size_mb > 0:
+        min_bytes = args.min_size_mb * 1000000
+        report["items"] = [i for i in report["items"] if i.get("size", 0) >= min_bytes]
+        report["total_items"] = len(report["items"])
+        report["total_size"] = sum(i.get("size", 0) for i in report["items"])
+        report["total_size_human"] = format_size(report["total_size"])
+
+    report["scan_time_ms"] = int((time.time() - t0) * 1000)
+    report["errors"] = errors
+
+    # Human stderr output
+    sep = "=" * 50
+    print(sep, file=sys.stderr)
+    print("  Clyan Report -- " + path, file=sys.stderr)
+    print("  " + report["total_size_human"] + " reclaimable (" + str(report["total_items"]) + " items)", file=sys.stderr)
+    print("  Scan: " + str(report["scan_time_ms"] / 1000) + "s", file=sys.stderr)
+    print(sep, file=sys.stderr)
+    for p in report["phases"]:
+        icons = {"none": "GRO", "low": "YEL", "medium": "ORA", "high": "RED", "unknown": "BLK"}
+        icon = icons.get(p["cost"], "???")
+        eco = ", ".join([e["ecosystem"] + ": " + e["size_human"] for e in p.get("ecosystem_breakdown", [])])
+        msg = "  " + icon + "  Phase " + p["cost"] + ": " + p["total_size_human"] + " (" + str(p["item_count"]) + " items)"
+        if eco:
+            msg += " -- " + eco
+        print(msg, file=sys.stderr)
+    print("  " + report["recommendation"], file=sys.stderr)
+
+    # Full JSON to stdout
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    if errors:
+        print("WARNING: " + str(len(errors)) + " provider errors", file=sys.stderr)
+        for e in errors[:5]:
+            print("   " + str(e), file=sys.stderr)
+
+
 def cmd_undo(args: argparse.Namespace) -> None:
     ok = mark_undone(args.id)
     _out({"operation_id": args.id, "undone": ok})
@@ -643,6 +722,16 @@ def build_parser() -> argparse.ArgumentParser:
     imp_sub = imp_p.add_subparsers(dest="import_type")
     imp_w2 = imp_sub.add_parser("winapp2", help="import Winapp2.ini cleaner definitions")
     imp_w2.add_argument("path", help="path to winapp2.ini file")
+
+    # ── Report subcommand ──
+    rp_p = sub.add_parser("report", help="[REPORT] AI-ready structured report of reclaimable space")
+    rp_p.add_argument("path", nargs="?", default=os.environ.get("USERPROFILE", "."),
+                      help="drive or directory path (default: USERPROFILE)")
+    rp_p.add_argument("--cost", choices=["none","low","medium","high","unknown"],
+                      help="filter to a single cost phase")
+    rp_p.add_argument("--ecosystem", help="filter to an ecosystem group")
+    rp_p.add_argument("--min-size-mb", type=int, default=0,
+                      help="minimum item size in MB")
 
     return p
 

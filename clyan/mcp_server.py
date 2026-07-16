@@ -343,6 +343,18 @@ async def handle_list_tools() -> list[Tool]:
                 "required": ["items"],
             },
         ),
+        Tool(
+            name="report_reclaim",
+            description="Generate a comprehensive AI-ready report of all reclaimable space on a drive. Runs all scanners, aggregates by ecosystem, sorts by recovery_cost, and produces phases with recommendation.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Drive or directory to scan", "default": "C:\\"},
+                    "cost": {"type": "string", "description": "Filter to specific cost: none, low, medium, high, unknown"},
+                    "ecosystem": {"type": "string", "description": "Filter to ecosystem group"},
+                },
+            },
+        ),
     ]
 
 
