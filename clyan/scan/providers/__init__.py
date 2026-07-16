@@ -83,4 +83,4 @@ def get_registered_providers() -> list[str]:
     return list(_registry.keys())
 
 
-from . import node, python_prov, rust_prov, ide, build, misc, windows_system, app_caches, win_deep, maven, windows_extra, winapp2_prov, npm_deep, pip_deep, windows_installer, dism_cleanup, npm_prune, small_files, vm_caches, windows_logs, empty_dirs, gpu_caches
+from . import node, python_prov, rust_prov, ide, build, misc, windows_system, app_caches, win_deep, maven, windows_extra, winapp2_prov, npm_deep, pip_deep, windows_installer, dism_cleanup, npm_prune, small_files, vm_caches, windows_logs, empty_dirs, gpu_caches, unknown_caches
