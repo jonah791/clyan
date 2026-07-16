@@ -1,6 +1,6 @@
 # 缓存检测器开发指南
 
-> Clyan 的 provider 系统是可插拔的架构。每个 provider 是一个独立的扫描函数，通过 `register()` 注册后自动集成到扫描管线中。当前共 **55+ 固定 provider + 动态 Winapp2**。
+> Clyan 的 provider 系统是可插拔的架构。每个 provider 是一个独立的扫描函数，通过 `register()` 注册后自动集成到扫描管线中。当前共 **56+ 固定 provider + 动态 Winapp2**。
 
 ## 架构概览
 
@@ -14,6 +14,20 @@ provider 函数: (root: str) -> list[CacheItem]
             _attach_signals() + enrich + impact + confidence
                       ↓
             ScanResult.to_dict() → 输出
+```
+
+## 三层架构
+
+新 provider 建议使用 `@register_provider` 装饰器，自动处理全部安全层：
+
+```python
+@register_provider("my_provider", ecosystem="app", default_cost="low")
+def _scan_my(root):
+    """Layer 1: 纯发现，不做判断"""
+    ...
+    yield CacheItem(path=path, size=size, label="MyApp Cache")
+# Layer 2 (安全层) 自动: is_protected / SafetyLevel / age_days / impact / confidence
+# Layer 3 (汇报层) 自动: build_report() / Phase / recommendation
 ```
 
 ## 快速开始

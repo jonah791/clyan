@@ -61,6 +61,11 @@ clyan trust remove C:\Users\tr\AppData\Local\SomeApp
 2. 如果路径本身或任一祖先路径在信任表中 → 跳过保护规则
 3. 信任记录持久化到 SQLite，跨会话有效
 
+### 通用保护（v1.0.0-rc.3+）
+
+所有 56 provider 在 `detect_all()` 中自动通过 `is_protected()` 过滤。
+不再需要 provider 手动调用保护检查。
+
 ## ⚡ Reflex 安全机制（v1.0.0-rc+）
 
 Reflex 是无意识的，但安全性由三层保证:

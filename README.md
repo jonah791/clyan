@@ -23,6 +23,27 @@ Clyan 不做三件事：
 - ❌ 不按阈值决定删除方法（删了 `_FAST_THRESHOLD`）
 - ❌ 不给 AI "加工"过的数据（全量原始信号返回）
 
+## 三层架构
+
+```
+╔══════════════════════════════════════════════════╗
+║  Layer 1  扫描层                                 ║
+║  56 provider → 纯发现 path + size                ║
+║  不做判断，不设等级                              ║
+╠══════════════════════════════════════════════════╣
+║  Layer 2  安全层 (自动)                           ║
+║  ├  is_protected 通用过滤 (56/56)                ║
+║  ├  SafetyLevel + age_days + tool_installed       ║
+║  ├  would_break + recovery_cost + ecosystem      ║
+║  └  confidence + 行为学习调整                     ║
+╠══════════════════════════════════════════════════╣
+║  Layer 3  汇报层 (report.py)                     ║
+║  ├  build_report() → 结构化 JSON                 ║
+║  ├  Phase 1/2/3/4 分阶段执行计划               ║
+║  └  recommendation 给 AI                        ║
+╚══════════════════════════════════════════════════╝
+```
+
 ## 功能矩阵
 
 ### 🔍 扫描（53+ 内置 Provider + 3700+ Winapp2）
@@ -40,7 +61,7 @@ Clyan 不做三件事：
 | 应用缓存 | Discord / Slack / Teams / Zoom / WeChat / Spotify / WhatsApp / Obsidian / Flutter / Android | 12 |
 | ML/AI | HuggingFace Hub / Ollama / PyTorch / TensorFlow / LM Studio | 5 |
 | Winapp2 | 社区维护 3700+ 条清理器定义（自动按路径分类） | 动态 |
-| **总计** | | **55+ 固定 + 动态** |
+| **总计** | | **56+ 固定 + 动态** |
 
 ### ⚡ Reflex（磁盘反射弧）
 
@@ -176,7 +197,7 @@ clyan mcp
 | `check_disk_pulse` | ⚡ **反射 tick**：<1ms 健康检查 |
 | `auto_clear_safe` | ⚡ **反射 twitch**：零决策安全清理 |
 | `reclaim` | 📋 **统一回收**：全量→分阶段→执行 |
-| `scan_quick` | 全量扫描（55 provider） |
+| `scan_quick` | 全量扫描（56 provider） |
 | `scan_dev_garbage` | 开发者垃圾 + Winapp2 |
 | `scan_browsers` | 浏览器缓存 |
 | `scan_system` | Windows 系统临时文件 |
@@ -232,7 +253,7 @@ clyan mcp
 
 | 版本 | 亮点 |
 |------|------|
-| **v1.0.0-rc** | Reflex 反射弧 + reclaim 统一回收 + 行为学习 + GPU 缓存 + 多驱动器 + 55 provider |
+| **v1.0.0-rc** | 三层架构重构 + 全量安全覆盖 + report.py 汇报层 + 56 provider |
 | **v0.19.0** | Windows Installer 缓存 / DISM 集成 / npm 裁剪 / Winapp2 路径分类 |
 | **v0.18.0** | npm/pip 缓存深度分解（_npx / _cacache / 年龄分组） |
 | **v0.17.0** | Winapp2 导入引擎（3700+ 社区清理器） |

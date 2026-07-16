@@ -1,10 +1,20 @@
 # Clyan 架构文档
 
-> 版本 1.0.0-rc.2 · 自用非商用开源项目
+> 版本 1.0.0-rc.3 · 自用非商用开源项目
 
 ## 设计理念
 
 Clyan 的核心原则：**工具做"全"和"准"，AI 做"判断"和"决策"**。
+
+### 线性三层架构
+
+```
+扫描层 → 56 provider 纯发现 (path + size)
+   ↓
+安全层 → is_protected / SafetyLevel / age_days / impact / confidence
+   ↓
+汇报层 → build_report() → Phase 1/2/3/4 + recommendation → AI
+```
 
 ```
 扫描层 → 全面发现 + 全量信号（不过滤、不设阈值）
@@ -59,7 +69,7 @@ AI     → 分析信号 + 做判断 + 选删除方法（trash/direct/native）
 │                   Scan Pipeline                    │
 ├──────────────────┬───────────────────────────────┤
 │  fast_scan       │  providers.detect_all()        │
-│  (目录模式匹配)   │  (55 注册 provider)            │
+│  (目录模式匹配)   │  (56 注册 provider)            │
 │  50+ 构建目录    │  ┌─────────────────────────┐   │
 │  match-and-stop  │  │ 内置 36 + 深度 17 个     │   │
 │                  │  │ Winapp2 动态加载 3377     │   │
