@@ -703,17 +703,22 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--verbose", "-v", action="store_true", help="show detailed error information")
     sub = p.add_subparsers(dest="command")
 
-    sp = sub.add_parser("scan", help="scan for cleanable items")
-    sp.add_argument("--phase", type=int, choices=[1,2,3], help="scan phase (1=fast, 2=garbage, 3=deep)")
+    sp = sub.add_parser("scan", help="scan for cleanable items (default: progressive 3-phase)")
+    sp.add_argument("--phase", type=int, choices=[1,2,3],
+                    help="explicit phase: 1=fast <1s, 2=garbage 8s, 3=deep 30s+")
+    sp.add_argument("--path", nargs="?", default="C:\\",
+                    help="path to scan (default: C:\\)")
     sp_sub = sp.add_subparsers(dest="scan_type")
+    sp.set_defaults(scan_type=None)
 
-    sp_space = sp_sub.add_parser("space", help="analyze directory space usage")
+    sp_space = sp_sub.add_parser("space", help="[legacy] analyze directory space usage")
+
     sp_space.add_argument("path", nargs="?", default=os.environ.get("USERPROFILE", "."))
     sp_space.add_argument("--depth", type=int, default=2)
     sp_space.add_argument("--min-size", default="0")
     sp_space.add_argument("--top", type=int, default=50)
 
-    sp_dev = sp_sub.add_parser("dev-garbage", help="find developer cache garbage")
+    sp_dev = sp_sub.add_parser("dev-garbage", help="[legacy] find developer cache garbage")
     sp_dev.add_argument("path", nargs="?", default=os.environ.get("USERPROFILE", "."))
     sp_dev.add_argument("--min-size-mb", type=int, default=0,
                         help="only show items >= this many MB")
@@ -722,26 +727,26 @@ def build_parser() -> argparse.ArgumentParser:
     sp_dev.add_argument("--json", dest="json_mode", action="store_true",
                         help="output raw items array (pipeable to clyan clean --stdin)")
 
-    sp_browsers = sp_sub.add_parser("browsers", help="find browser caches")
+    sp_browsers = sp_sub.add_parser("browsers", help="[legacy] find browser caches")
 
-    sp_sys = sp_sub.add_parser("system", help="find system temp files")
+    sp_sys = sp_sub.add_parser("system", help="[legacy] find system temp files")
 
-    sp_dup = sp_sub.add_parser("duplicates", help="find duplicate files by size+hash")
+    sp_dup = sp_sub.add_parser("duplicates", help="[legacy] find duplicate files")
     sp_dup.add_argument("path", nargs="?", default=os.environ.get("USERPROFILE", "."))
     sp_dup.add_argument("--json", dest="json_mode", action="store_true",
                         help="output raw items array (pipeable to clyan clean --stdin)")
 
     sp_pkgs = sp_sub.add_parser("packages",
-                                help="scan installed package environments (conda, scoop, cargo, go, npm)")
+                                help="[legacy] scan package environments (conda, scoop, cargo, go, npm)")
     sp_pkgs.add_argument("--json", dest="json_mode", action="store_true",
                          help="output raw items array (pipeable to clyan clean --stdin)")
 
-    sp_quick = sp_sub.add_parser("quick", help="run all scans")
+    sp_quick = sp_sub.add_parser("quick", help="[legacy] run all scans")
     sp_quick.add_argument("path", nargs="?", default=os.environ.get("USERPROFILE", "."))
     sp_quick.add_argument("--top", type=int, default=0,
                           help="only show top N biggest items across all scans")
 
-    sp_disk = sp_sub.add_parser("disk", help="disk usage summary: capacity + top dirs + reclaimable")
+    sp_disk = sp_sub.add_parser("disk", help="[legacy] disk usage summary")
     sp_disk.add_argument("path", nargs="?", default="C:\\",
                          help="drive or directory path (default: C:\\")
     sp_disk.add_argument("--depth", type=int, default=2,
@@ -749,7 +754,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp_disk.add_argument("--trend", action="store_true",
                          help="show disk usage history (requires prior snapshots)")
 
-    sp_files = sp_sub.add_parser("files", help="find largest individual files")
+    sp_files = sp_sub.add_parser("files", help="[legacy] find largest files")
     sp_files.add_argument("path", nargs="?", default="C:\\",
                           help="root path (default: C:\\)")
     sp_files.add_argument("--min-size", type=int, default=50,
@@ -759,7 +764,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp_files.add_argument("--json", dest="json_mode", action="store_true",
                           help="output raw items array (pipeable to clyan clean --stdin)")
 
-    sp_nw = sp_sub.add_parser("node-waste", help="find non-essential files inside node_modules")
+    sp_nw = sp_sub.add_parser("node-waste", help="[legacy] find node_modules waste")
     sp_nw.add_argument("path", nargs="?", default=os.environ.get("USERPROFILE", "."),
                        help="project root to scan for node_modules waste")
 
