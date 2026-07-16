@@ -60,8 +60,6 @@ class ScanPipeline:
         from ..scan.browser_deep import scan_browser_deep
         from ..scan.system import SystemScanner
         sys_result = SystemScanner().scan().to_dict()
-        from ..scan.duplicates import DuplicateScanner
-
         # All providers
         results, errors = detect_all(self.path)
         self.errors.extend(errors)
@@ -83,12 +81,7 @@ class ScanPipeline:
             item["provider"] = "system"
             items.append(item)
 
-        # Duplicates (quick: only groups >1GB)
-        dup_scanner = DuplicateScanner(self.path)
-        dup_result = dup_scanner.scan()
-        for item in dup_result.get("items", []):
-            item["provider"] = "duplicates"
-            items.append(item)
+        # Duplicates moved to Phase 3 (expensive full scan)
 
         self.results["garbage_items"] = items
         self._phase_times[2] = time.time() - t0
@@ -131,6 +124,13 @@ class ScanPipeline:
         nw = NodeWasteScanner(self.path)
         nw_result = nw.scan().to_dict()
         self.results["node_waste"] = nw_result
+
+        # Duplicates (only groups >100 MB)
+        from ..scan.duplicates import DuplicateScanner
+        dup = DuplicateScanner(self.path).scan().to_dict()
+        # Filter for groups >100 MB
+        dup["items"] = [i for i in dup.get("items", []) if i.get("savings", 0) > 100_000_000]
+        self.results["duplicates"] = dup
 
         # Packages
         from ..scan.packages import PackagesScanner
