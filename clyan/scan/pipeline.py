@@ -58,7 +58,8 @@ class ScanPipeline:
 
         from ..scan.providers import detect_all
         from ..scan.browser_deep import scan_browser_deep
-        from ..scan.system import scan_system
+        from ..scan.system import SystemScanner
+        sys_result = SystemScanner().scan().to_dict()
         from ..scan.duplicates import DuplicateScanner
 
         # All providers
@@ -78,13 +79,12 @@ class ScanPipeline:
             items.append(item)
 
         # System
-        sys_result = scan_system()
         for item in sys_result.get("items", []):
             item["provider"] = "system"
             items.append(item)
 
         # Duplicates (quick: only groups >1GB)
-        dup_scanner = DuplicateScanner(self.path, min_group_size=1_000_000_000)
+        dup_scanner = DuplicateScanner(self.path)
         dup_result = dup_scanner.scan()
         for item in dup_result.get("items", []):
             item["provider"] = "duplicates"
