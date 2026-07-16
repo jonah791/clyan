@@ -333,6 +333,17 @@ _IMPACT_DB: dict[str, tuple[list[str], list[str], str]] = {
         ["windows"],
         "none",
     ),
+    "vm_caches:docker_dangling": (
+        ["Docker dangling images removed — safe, no impact on running containers"],
+        ["docker"],
+        "low",
+    ),
+    "vm_caches:wsl2_vhdx": (
+        ["WSL2 VHDX disk compacted — safe, no data loss"],
+        ["wsl"],
+        "none",
+    ),
+
     "small_files": (
         ["Small waste files deleted — no impact (desktop.ini, .log, .bak, .dmp)"],
         [],
@@ -496,7 +507,7 @@ def ecosystem_for(provider: str, path: str = "") -> str:
                      "windows_system", "system", "win_deep", "driver_store"},
         "ml": {"ml_cache", "docker_images"},
         "build": {"build_artifacts", "build_artifacts_file"},
-        "other": {"small_files"},
+        "other": {"small_files", "vm_caches"},
         "windows": {"...windows already has full set..."},
     }
     

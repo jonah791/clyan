@@ -74,7 +74,7 @@ def _scan_small_files(root: str) -> list[CacheItem]:
     total_size = 0
 
     try:
-        for dirpath, dirs, files in safe_walk(root, max_depth=5):
+        for dirpath, dirs, files in safe_walk(root, max_depth=4):
             # Skip internal dirs
             base = os.path.basename(dirpath)
             dirname = os.path.basename(os.path.dirname(dirpath))
@@ -82,7 +82,10 @@ def _scan_small_files(root: str) -> list[CacheItem]:
             # Skip system/protected dirs
             skip = False
             # Skip well-known large non-waste paths
-            if "AppData" in dirpath.split(os.sep) and "Local" in dirpath and not "Temp" in dirpath:
+            parts = dirpath.split(os.sep)
+            # Skip deep AppData paths (deep caches), but keep Temp and Recent
+            if "AppData" in parts and len(parts) > 5:
+                skip = True
                 # In AppData\Local, only scan Temp and well-known cache dirs
                 skip = True
             # Skip standard system dirs
