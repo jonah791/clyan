@@ -10,11 +10,10 @@
 import os
 import time
 from collections import Counter
-from . import CacheItem, SafetyLevel, register
+from . import CacheItem, SafetyLevel, register_provider
 from ...utils.size import format_size
 from ...utils.dirtree import dir_total
 from ...utils.scanner_base import safe_walk
-from ...core.config import is_protected
 
 
 # 文件类型 -> 用途推断
@@ -162,9 +161,6 @@ def _scan_unknown_caches(root):
         if sz < 10_000_000:
             continue
 
-        if is_protected(dpath):
-            continue
-
         name = os.path.basename(dpath)
         try:
             age = (now - os.path.getmtime(dpath)) / 86400
@@ -194,4 +190,9 @@ def _scan_unknown_caches(root):
     return results
 
 
-register("unknown_caches", _scan_unknown_caches)
+
+# Auto-register with all layers:
+#   ecosystem="app" → auto-mapped to app group
+#   default_cost="unknown" → auto-added to _IMPACT_DB
+#   needs_protection=True → auto-wrap with is_protected()
+register_provider("unknown_caches", ecosystem="app", default_cost="unknown")(_scan_unknown_caches)

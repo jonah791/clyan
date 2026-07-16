@@ -6,10 +6,10 @@ Czkawka-style: 扫描用户目录下所有空目录。
 
 import os
 import time
-from . import CacheItem, SafetyLevel, register
+from . import CacheItem, SafetyLevel, register_provider
 from ...utils.size import format_size
 from ...utils.scanner_base import safe_walk
-from ...core.config import is_protected
+# is_protected handled by @register_provider
 
 # 跳过的目录名
 _SKIP_EMPTY = {
@@ -58,7 +58,7 @@ def _scan_empty_dirs(root: str) -> list[CacheItem]:
         return results
 
     # Filter out protected directories
-    empty_dirs = [ed for ed in empty_dirs if not is_protected(ed["path"])]
+    # Protection handled by decorator
     if not empty_dirs:
         return results
 
@@ -107,4 +107,4 @@ def _scan_empty_dirs(root: str) -> list[CacheItem]:
     return results
 
 
-register("empty_dirs", _scan_empty_dirs)
+register_provider("empty_dirs", ecosystem="windows", default_cost="none")(_scan_empty_dirs)

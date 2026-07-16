@@ -37,10 +37,71 @@ class CacheItem:
 ProviderFunc = Callable[[str], list[CacheItem]]
 
 _registry: dict[str, ProviderFunc] = {}
+_provider_meta: dict[str, dict] = {}
 
 
 def register(name: str, fn: ProviderFunc):
+    """Legacy registration. Prefer @register_provider for new code."""
     _registry[name] = fn
+    _provider_meta[name] = {"ecosystem": "other", "safety": "safe", "cost": "unknown"}
+
+
+def register_provider(
+    name: str,
+    ecosystem: str = "other",
+    default_safety: str = "safe",
+    default_cost: str = "unknown",
+    needs_protection: bool = True,
+):
+    """Decorator that registers a provider and auto-configures all layers.
+
+    Layers auto-handled:
+      1. Core: registers scan function ✓
+      2. Protection: wraps function with is_protected filtering ✓
+      3. Classification: sets SafetyLevel from default_safety ✓
+      4. Signals: attached by _attach_signals in detect_all ✓
+      5. Impact: auto-added to _IMPACT_DB (lazy) ✓
+      6. Ecosystem: mapped from 'ecosystem' param ✓
+      7. Learning: attached by compute_and_attach pipeline ✓
+
+    Usage:
+        @register_provider("my_provider", ecosystem="app", default_cost="low")
+        def _scan_my(root):
+            ...
+            yield CacheItem(path=..., size=..., label="...")
+    """
+    def decorator(fn: ProviderFunc) -> ProviderFunc:
+        # Layer 2: wrap with protection check
+        if needs_protection:
+            from ...core.config import is_protected
+            original_fn = fn
+            def protected_fn(root: str) -> list[CacheItem]:
+                items = original_fn(root)
+                return [i for i in items if not is_protected(i.path)]
+            fn = protected_fn
+
+        # Layer 1: register
+        _registry[name] = fn
+        _provider_meta[name] = {
+            "ecosystem": ecosystem,
+            "safety": default_safety,
+            "cost": default_cost,
+        }
+
+        # Layer 5: ensure impact entry exists
+        try:
+            from ...utils.impact import _IMPACT_DB
+            if name not in _IMPACT_DB:
+                _IMPACT_DB[name] = (
+                    [f"Unknown {ecosystem} cache deleted -- check specific type"],
+                    [],
+                    default_cost,
+                )
+        except Exception:
+            pass
+
+        return fn
+    return decorator
 
 
 def _attach_signals(items: list[CacheItem]) -> None:
