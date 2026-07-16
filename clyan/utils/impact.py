@@ -647,7 +647,14 @@ def impact_for(provider: str, path: str = "", extra: dict | None = None) -> dict
                 "recovery_cost": cost,
             }
 
-   
+    # Final fallback
+    return {
+        "would_break": [f"Unknown cache ({p})"],
+        "would_affect": [],
+        "recovery_cost": "unknown",
+    }
+
+
 def ecosystem_for(provider: str, path: str = "") -> str:
     """Return the ecosystem group for a cache item.
     

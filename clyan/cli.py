@@ -523,8 +523,8 @@ def cmd_report(args: argparse.Namespace) -> None:
     results, errors = detect_all(path)
     from .scan.browser_deep import scan_browser_deep
     browser_result = scan_browser_deep()
-    from .scan.system import scan_system
-    sys_result = scan_system()
+    from .scan.system import SystemScanner
+    sys_result = SystemScanner().scan().to_dict()
 
     # Collect all items into dicts
     all_items = []
@@ -597,6 +597,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="command")
 
     sp = sub.add_parser("scan", help="scan for cleanable items")
+    sp.add_argument("--phase", type=int, choices=[1,2,3], help="scan phase (1=fast, 2=garbage, 3=deep)")
     sp_sub = sp.add_subparsers(dest="scan_type")
 
     sp_space = sp_sub.add_parser("space", help="analyze directory space usage")
@@ -852,6 +853,19 @@ def main() -> None:
         _VERBOSE = True
 
     if args.command == "scan":
+        # If --phase specified, use pipeline
+        phase = getattr(args, "phase", None)
+        if phase:
+            from .scan.pipeline import ScanPipeline
+            pipe = ScanPipeline(path=getattr(args, "path", "C:\\"))
+            phases = {1: pipe.phase1, 2: pipe.phase2_garbage, 3: pipe.phase3_deep}
+            result = phases[phase]()
+            # Pretty print
+            import json
+            label = result.get("label", f"Phase {phase}")
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return
+
         dispatch = {
             "space": cmd_scan_space,
             "dev-garbage": cmd_scan_dev,
