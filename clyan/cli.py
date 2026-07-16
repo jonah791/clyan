@@ -635,7 +635,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp_disk = sp_sub.add_parser("disk", help="disk usage summary: capacity + top dirs + reclaimable")
     sp_disk.add_argument("path", nargs="?", default="C:\\",
-                         help="drive or directory path (default: C:\)")
+                         help="drive or directory path (default: C:\\")
     sp_disk.add_argument("--depth", type=int, default=2,
                          help="how many levels to show (default: 2)")
     sp_disk.add_argument("--trend", action="store_true",
@@ -643,7 +643,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp_files = sp_sub.add_parser("files", help="find largest individual files")
     sp_files.add_argument("path", nargs="?", default="C:\\",
-                          help="root path (default: C:\\\)")
+                          help="root path (default: C:\\)")
     sp_files.add_argument("--min-size", type=int, default=50,
                           help="minimum file size in MB (default: 50)")
     sp_files.add_argument("--top", type=int, default=50,
@@ -699,7 +699,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp_sch.add_argument("--remove", action="store_true",
                         help="remove the scheduled cleanup task")
     sp_sch.add_argument("--path", default="C:\\",
-                        help="drive or path to clean (default: C:\\\)")
+                        help="drive or path to clean (default: C:\\)")
     sp_sch.add_argument("--time", default="03:00",
                         help="time to run, e.g. 03:00 (default: 3 AM)")
 
@@ -799,7 +799,7 @@ def cmd_schedule(args: argparse.Namespace) -> None:
     elif args.remove:
         _schedule_remove(args)
     else:
-        print("Usage: clyan schedule --create [--time 03:00] [--path C:\]")
+        print("Usage: clyan schedule --create [--time 03:00] [--path C:\\]")
         print("       clyan schedule --remove")
 
 
