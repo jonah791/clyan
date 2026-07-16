@@ -1,3 +1,4 @@
+from ..utils.paths import browser_cache_paths
 import os
 import time
 import ctypes
@@ -6,15 +7,11 @@ from ..utils.size import format_size
 from ..utils.dirtree import dir_total
 from ..utils.scanner_base import ScanResult
 from ..reflex import _refresh_pulse_cache
-
-
 _SKIP = {
     "$Recycle.Bin", "System Volume Information", "Recovery",
     "Windows.old", "Config.Msi", "$SysReset", "MSOCache",
     "Boot", "Documents and Settings",
 }
-
-
 def _get_disk_free_space(path: str) -> tuple[int, int, int]:
     root = os.path.splitdrive(os.path.abspath(path))[0] + "\\"
     try:
@@ -33,8 +30,6 @@ def _get_disk_free_space(path: str) -> tuple[int, int, int]:
             return t, f, t - f
         except Exception:
             return 0, 0, 0
-
-
 def _quick_size(path: str) -> int:
     """Sum of immediate file sizes only (no recursion). Fast estimate."""
     total = 0
@@ -49,8 +44,6 @@ def _quick_size(path: str) -> int:
     except Exception:
         pass
     return total
-
-
 def _walk_dirs(path: str, depth: int, top_n: int = 15, is_top: bool = True) -> list[dict]:
     """Directory tree — bounded-depth dir_total for speed."""
     items = []
@@ -84,8 +77,6 @@ def _walk_dirs(path: str, depth: int, top_n: int = 15, is_top: bool = True) -> l
     items.sort(key=lambda x: -x["size"])
     limit = top_n if is_top else min(top_n, 8)
     return items[:limit]
-
-
 def _classify_usage(name: str) -> str:
     system = {"Windows", "Program Files", "Program Files (x86)", "ProgramData",
               "PerfLogs", "Intel"}
@@ -99,12 +90,9 @@ def _classify_usage(name: str) -> str:
     if name in apps_like: return "应用/工具"
     if name.startswith("$"): return "系统隐藏"
     return "其他"
-
-
 def scan_disk(path: str = "C:\\", depth: int = 2, top_n: int = 15) -> ScanResult:
     start = time.time()
     result = ScanResult()
-
     total, free, used = _get_disk_free_space(path)
     usage_pct = round(used / total * 100, 1) if total > 0 else 0
     result.extra["disk"] = {
@@ -114,10 +102,8 @@ def scan_disk(path: str = "C:\\", depth: int = 2, top_n: int = 15) -> ScanResult
         "free": free, "free_human": format_size(free),
         "usage_percent": usage_pct,
     }
-
     tree = _walk_dirs(path, depth, top_n)
     result.extra["top_dirs"] = tree
-
     cats: dict[str, int] = {}
     for n in tree:
         c = _classify_usage(n["name"])
@@ -126,7 +112,6 @@ def scan_disk(path: str = "C:\\", depth: int = 2, top_n: int = 15) -> ScanResult
         {"category": k, "total_size": v, "total_size_human": format_size(v)}
         for k, v in sorted(cats.items(), key=lambda x: -x[1])
     ]
-
     garbage_total = 0
     gb: dict[str, int] = {}
     tmp = os.environ.get("TEMP", "")
@@ -134,11 +119,10 @@ def scan_disk(path: str = "C:\\", depth: int = 2, top_n: int = 15) -> ScanResult
         sz = dir_total(tmp)
         if sz > 0:
             garbage_total += sz; gb["临时文件"] = sz
-    from ..utils.paths import browser_cache_paths
-    for key, label in [("chrome", "Chrome"), ("chrome_code_cache", "Chrome"),
+        for key, label in [("chrome", "Chrome"), ("chrome_code_cache", "Chrome"),
                        ("edge", "Edge"), ("edge_code_cache", "Edge"),
                        ("firefox", "Firefox")]:
-        p = browser_cache_paths().get(key, "")
+            p = browser_cache_paths().get(key, "")
         if p and os.path.isdir(p):
             sz = dir_total(p)
             if sz > 0:
@@ -152,5 +136,3 @@ def scan_disk(path: str = "C:\\", depth: int = 2, top_n: int = 15) -> ScanResult
     result.scan_time_ms = (time.time() - start) * 1000
     _refresh_pulse_cache(path, {"items": [], **result.extra})
     return result
-
-

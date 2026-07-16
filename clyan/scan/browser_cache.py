@@ -1,8 +1,8 @@
+from ..utils.paths import browser_cache_paths
 import os
 import time
 import glob
 from ..utils.scanner_base import ScanResult, BaseScanner
-from ..utils.paths import browser_cache_paths
 from ..utils.dirtree import dir_total
 from ..core.config import DangerLevel
 from .providers import CacheItem

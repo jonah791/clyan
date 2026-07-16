@@ -4,6 +4,7 @@ import sys
 import os
 
 _VERBOSE = False
+CLYAN_CONFIG = {"verbose": False, "json": False}
 
 
 def _out(data: dict) -> None:
@@ -701,6 +702,7 @@ def cmd_undo(args: argparse.Namespace) -> None:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="clyan", description="AI-driven disk cleaner")
     p.add_argument("--verbose", "-v", action="store_true", help="show detailed error information")
+    p.add_argument("--json", "-j", action="store_true", help="pure JSON output (no human-readable messages)")
     sub = p.add_subparsers(dest="command")
 
     sp = sub.add_parser("scan", help="scan for cleanable items (default: progressive 3-phase)")
@@ -968,11 +970,15 @@ def _schedule_remove(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
-    global _VERBOSE
+    global _VERBOSE, CLYAN_CONFIG
     parser = build_parser()
-    args = parser.parse_args()
+    args, _extra = parser.parse_known_args()
     if getattr(args, "verbose", False):
         _VERBOSE = True
+        CLYAN_CONFIG["verbose"] = True
+    if getattr(args, "json", False):
+        _out.json_mode = True
+        CLYAN_CONFIG["json"] = True
 
     if args.command == "scan":
         # If --phase specified, use pipeline
@@ -1004,7 +1010,39 @@ def main() -> None:
         if fn:
             fn(args)
         else:
-            parser.print_help()
+            # Default: progressive drill-down scan
+            path = getattr(args, "path", "C:\\")
+            from .utils.pathfmt import norm
+            import os, json, time
+            t0 = time.time()
+            result = {"path": norm(path), "items": [], "errors": [], "inaccessible_count": 0}
+            if os.path.isdir(path):
+                total = 0
+                dirs = []
+                try:
+                    for entry in os.scandir(path):
+                        try:
+                            if entry.is_dir():
+                                sz = _dir_size(entry.path)
+                                dirs.append({"name": entry.name, "path": norm(entry.path), "size": sz, "is_dir": True})
+                                total += sz
+                            elif entry.is_file():
+                                sz = entry.stat().st_size
+                                dirs.append({"name": entry.name, "path": norm(entry.path), "size": sz, "is_dir": False})
+                                total += sz
+                        except: pass
+                except Exception as e:
+                    result["errors"].append(str(e))
+                dirs.sort(key=lambda x: -x["size"])
+                result["items"] = dirs[:40]
+                result["total_size"] = total
+                result["total_size_human"] = _fmt(total)
+                result["dir_count"] = len(dirs)
+                result["scan_time_ms"] = int((time.time() - t0) * 1000)
+                _print_scan_result(result)
+            else:
+                result["errors"].append("Path not found")
+                _out(result)
     elif args.command == "clean":
         cmd_clean(args)
     elif args.command == "reclaim":
