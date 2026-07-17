@@ -1,4 +1,4 @@
-# Clyan — AI-Driven Disk Cleaner v2.9.0 — 给 AI Agent 的磁盘本体感觉
+# Clyan — AI-Driven Disk Cleaner v3.0.0 — 给 AI Agent 的磁盘本体感觉
 
 > **自用非商用开源项目** · AGPL · 一个 AI 知道它"有多满"的磁盘工具
 
@@ -68,15 +68,11 @@ Clyan 不做三件事：
 | Winapp2 | 社区维护 3700+ 条清理器定义（自动按路径分类） | 动态 |
 | **总计** | | **56+ 固定 + 动态** |
 
-### ⚡ Reflex（磁盘反射弧）
-
 | 级别 | 工具 | 延迟 | AI 意识 | 行为 |
 |------|------|------|---------|------|
 | **tick** | `check_disk_pulse` | **<1ms** | 写文件前自动调用 | 无感 |
 | **twitch** | `auto_clear_safe` | **~1s（缓存命中）** | 无感自动执行 | 只清 cost=none |
 | **spasm** | `reclaim --phase` | **~30s（全量）** | 被告知，不做决策 | 分阶段执行 |
-
-### 🧠 行为学习
 
 Clyan 根据 AI 的历史决策动态调整置信度：
 
@@ -86,8 +82,6 @@ AI 连续清理 pip_cache 3 次 → 置信度 +0.05（AI 认为安全）
 历史准确率 < 70%            → 置信度 -0.05（校准）
 从未见过的新类型            → 置信度 -0.03（保守）
 ```
-
-### 📋 Reclaim（统一回收计划）
 
 一次扫描，按风险分阶段输出：
 
@@ -117,22 +111,13 @@ AI 连续清理 pip_cache 3 次 → 置信度 +0.05（AI 认为安全）
 ```bash
 pip install -e .
 
-# 磁盘反射弧——AI 的无意识层
 clyan pulse                          # <1ms 健康检查
 clyan auto-clear                     # 自动释放安全空间
 
-# 统一回收计划
 clyan reclaim C:\                    # 全量扫描 → 分阶段计划
 clyan reclaim C:\ --phase none       # 只执行零风险阶段
 
-# 传统扫描
-clyan scan disk C:\ --depth 2       # 磁盘概览
-clyan scan dev-garbage C:\ --explain # 开发者垃圾 + 置信度
-clyan scan quick C:\                 # 全量快速体检
-clyan scan files C:\ --min-size 100  # 大文件发现
 
-# 一键深清
-clyan clean --deep --strategy safe --yes
 
 # MCP 服务器（给 AI Agent 用）
 clyan mcp
@@ -155,14 +140,12 @@ clyan mcp
 | `scan node-waste <path>` | node_modules 内部瘦身 |
 | `scan quick <path>` | 一键全量扫描 |
 
-### 反射
 
 | 命令 | 说明 |
 |------|------|
 | `pulse [path]` | **⚡ 磁盘健康检查**（<1ms，缓存的） |
 | `auto-clear [path]` | **⚡ 自动释放 cost=none 空间** |
 
-### 回收
 
 | 命令 | 说明 |
 |------|------|
@@ -191,7 +174,7 @@ clyan mcp
 | `mcp` | 启动 MCP 服务器（7 个 AI 感知工具） |
 | `schedule --create` | 每周定时清理 |
 
-## MCP 服务器（7 工具，AI 感知设计）
+## MCP 服务器（7 工具）
 
 ```bash
 clyan mcp
@@ -265,6 +248,7 @@ clyan mcp
 | **v0.16.0** | 历史准确率 + clean_plan MCP 工具 |
 | **v0.15.0** | 信任系统 + system_health MCP |
 | **v0.14.0** | Agent 反馈闭环 + clyan trust |
+| **v3.0.0** | 核心精简: 砍掉 learning/reflex/report (640行), 保留 7 MCP 工具，10,717→6,077 行 |
 | **v0.13.0** | 影响预测（would_break / recovery_cost）+ 生态分组 |
 | **v0.10.0** | 执行层精简：AI 全权决策 |
 | **v0.7.0** | 置信度引擎（6 信号 + 重建成本） |
@@ -285,6 +269,8 @@ clyan mcp
 | [modclean](https://github.com/ModClean/modclean) | node_modules 深度瘦身 |
 
 ## 许可证
+
+AGPL · 自用非商用开源
 
 自用非商用开源项目（AGPL）。仅供个人学习、研究使用。禁止商业用途。
 
