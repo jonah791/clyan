@@ -536,13 +536,7 @@ def cmd_history(args: argparse.Namespace) -> None:
 
 
 def cmd_report(args: argparse.Namespace) -> None:
-    """Generate AI-ready report of reclaimable space."""
-    import time, json
-    from .report import build_report
-    from .utils.size import format_size
-
-    t0 = time.time()
-    path = os.path.abspath(args.path)
+    pass  # report removed in v3.0.0
 
     # Run all scans
     print("Scanning " + path + "...", file=sys.stderr)
@@ -640,7 +634,6 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     # 1. Import sanity
     try:
         from clyan.scan.providers import get_registered_providers
-        from clyan.reflex import check_pulse
         from clyan.core.history import _get_db
         from clyan.utils.impact import _IMPACT_DB, impact_for
         check("All core modules importable", True)
@@ -850,14 +843,14 @@ def build_parser() -> argparse.ArgumentParser:
                         help="time to run, e.g. 03:00 (default: 3 AM)")
 
     # ── Reflex subcommands ──
-    rp = sub.add_parser("pulse", help="[REFLEX] instant disk health check")
+    rp = sub.add_parser("pulse_removed", help="[REFLEX] instant disk health check")
     rp.add_argument("path", nargs="?", default="C:\\", help="drive to check")
-    ac = sub.add_parser("auto-clear", help="[REFLEX] auto-clear cost=none items")
+    ac = sub.add_parser("autoclear_removed", help="[REFLEX] auto-clear cost=none items")
     ac.add_argument("path", nargs="?", default="C:\\", help="root path")
     ac.add_argument("--target-gb", type=float, default=0, help="stop after N GB")
 
     # ── Reclaim subcommand ──
-    rc = sub.add_parser("reclaim", help="full reclaim plan: scan → aggregate → phases → execute")
+    rc = sub.add_parser("reclaim_removed", help="full reclaim plan: scan → aggregate → phases → execute")
     rc.add_argument("path", nargs="?", default="C:\\", help="root path")
     rc.add_argument("--phase", help="execute only this cost phase (none/low/medium/high)")
     rc.add_argument("--yes", action="store_true", help="skip confirmation")
@@ -870,7 +863,7 @@ def build_parser() -> argparse.ArgumentParser:
     imp_w2.add_argument("path", help="path to winapp2.ini file")
 
     # ── Report subcommand ──
-    rp_p = sub.add_parser("report", help="[REPORT] AI-ready structured report of reclaimable space")
+    rp_p = sub.add_parser("report_removed", help="[REPORT] AI-ready structured report of reclaimable space")
     rp_p.add_argument("path", nargs="?", default=os.environ.get("USERPROFILE", "."),
                       help="drive or directory path (default: USERPROFILE)")
     rp_p.add_argument("--cost", choices=["none","low","medium","high","unknown"],
@@ -1048,7 +1041,7 @@ def main() -> None:
 
     elif args.command == "clean":
         cmd_clean(args)
-    elif args.command == "reclaim":
+    elif args.command == "reclaim_removed":
         from .reclaim import reclaim, execute_phase
         plan = reclaim(args.path)
         if args.dry_run or not args.phase:
@@ -1073,7 +1066,7 @@ def main() -> None:
         print(json.dumps(plan if not args.phase else result, ensure_ascii=False, indent=2))
     elif args.command == "history":
         cmd_history(args)
-    elif args.command == "report":
+    elif args.command == "report_removed":
         cmd_report(args)
     elif args.command == "doctor":
         cmd_doctor(args)
@@ -1081,32 +1074,8 @@ def main() -> None:
         cmd_benchmark(args)
     elif args.command == "undo":
         cmd_undo(args)
-    elif args.command == "pulse":
-        from .reflex import check_pulse
-        result = check_pulse(args.path)
-        # Human-readable summary
-        status_icon = {"healthy": "🟢", "warning": "🟡", "critical": "🔴"}.get(result["status"], "❓")
-        print(f"{status_icon}  Disk {result['path']}: {result['free_gb']} GB free ({result['free_pct']}%)")
-        print(f"   Total: {result['total_gb']} GB  |  Used: {result['used_gb']} GB")
-        print(f"   Safe reclaimable: {result['safe_reclaimable_gb']} GB  |  Days critical: {result['days_until_critical']}")
-        growth = result.get('growth_rate_gb_per_week')
-        if growth:
-            print(f"   Growth: {growth} GB/week")
-        print(f"   Status: {result['status'].upper()}  |  Cached: {result.get('cached',False)}  |  {result.get('ellapsed_ms',0)}ms")
-        # Also print JSON for AI consumption
-        print("---")
-        print(json.dumps(result, ensure_ascii=False, indent=2))
-    elif args.command == "auto-clear":
-        from .reflex import auto_clear_safe
-        result = auto_clear_safe(path=args.path, target_gb=args.target_gb)
-        icon = "✅" if result.get("items_failed",0) == 0 else "⚠️"
-        print(f"{icon}  Auto-clear: {result.get('message','')}")
-        print(f"   Items: {result.get('items_cleared',0)} cleared, {result.get('items_failed',0)} failed")
-        print(f"   Freed: {result.get('reclaimed_human','0 B')}  |  Actual: {result.get('actual_freed_human','?')}")
-        print(f"   Protected skipped: {result.get('protected_paths_skipped',0)}")
-        print(f"   Time: {result.get('ellapsed_ms',0)/1000:.1f}s")
-        print("---")
-        print(json.dumps(result, ensure_ascii=False, indent=2))
+    elif args.command == "pulse_removed":
+        import shutil; du = shutil.disk_usage(args.path); print(f"Disk {args.path}: {du.free/1e9:.0f} GB free")
     elif args.command == "mcp":
         cmd_mcp(args)
     elif args.command == "schedule":

@@ -11,8 +11,6 @@ import time
 from typing import Any
 from .utils.size import format_size
 from .clean.execute import delete_items
-from .reflex import _refresh_pulse_cache
-from .report import build_report, _enrich_items
 
 
 def reclaim(path: str = "C:\\") -> dict:
@@ -109,7 +107,7 @@ def _reclaim_single(path: str) -> dict:
             deduped.append(item)
 
     # 3-6. Use report layer: enrich + sort + phase + recommendation
-    report = build_report(deduped, path)
+    report = None  # report removed(deduped, path)
     phases = report["phases"]
     total_size = report["total_size"]
     total_items = report["total_items"]

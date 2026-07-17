@@ -4,7 +4,6 @@ import os, time, ctypes, ctypes.wintypes, sys
 from ..utils.size import format_size
 from ..utils.dirtree import dir_total
 from ..utils.scanner_base import ScanResult
-from ..reflex import _refresh_pulse_cache
 
 _SKIP = {
     "$Recycle.Bin", "System Volume Information", "Recovery",
