@@ -164,7 +164,8 @@ def _quick_size(path: str) -> int:
 
 
 def _full_scan_one_pass(path: str, root_drive: str,
-                         max_time: float = 150) -> tuple[list[dict], list[dict], list[str], float]:
+                         max_time: float = 150,
+                         classify_garbage: bool = False) -> tuple[list[dict], list[dict], list[str], float]:
     """Parallel full scan using ThreadPoolExecutor.
     
     Walks each top-level directory in its own thread.
@@ -174,6 +175,7 @@ def _full_scan_one_pass(path: str, root_drive: str,
     from concurrent.futures import ThreadPoolExecutor, as_completed
     _start = time.time()
     dir_sizes: dict[str, int] = {}
+    dir_cleanable: dict[str, int] = {}
     inaccessible: list[str] = []
     fs: list = []
 
@@ -227,8 +229,10 @@ def _full_scan_one_pass(path: str, root_drive: str,
                         inaccessible.append(f"(timeout: {fut_map[remaining]})")
                 break
             try:
-                ep, sz = f.result()
+                ep, sz, cln = f.result()
                 dir_sizes[ep] = sz
+                if classify_garbage:
+                    dir_cleanable[ep] = cln
             except Exception:
                 pass
 
@@ -370,7 +374,7 @@ def _classify_usage(name: str) -> str:
 
 
 def scan_disk(path: str = "C:\\", depth: int = 2, top_n: int = 15,
-              full: bool = False) -> ScanResult:
+              full: bool = False, clean: bool = False) -> ScanResult:
     """Disk usage scan with deep drill-down, inaccessible tracking, and gap analysis.
     
     Args:
@@ -379,6 +383,7 @@ def scan_disk(path: str = "C:\\", depth: int = 2, top_n: int = 15,
         top_n: Max items per level
         full: Force SINGLE-PASS full scan. Walks every file/dir ONCE. 
               Slower (1-2 min) but accounts for ALL space.
+        clean: Also classify files against garbage rules. Reports cleanable_size per dir.
     """
     start = time.time()
     result = ScanResult()
@@ -389,7 +394,7 @@ def scan_disk(path: str = "C:\\", depth: int = 2, top_n: int = 15,
     if full:
         # ── Single-pass full scan ──
         tree, root_files, inaccessible, accounted = _full_scan_one_pass(
-            path, root_drive, max_time=120)
+            path, root_drive, max_time=120, classify_garbage=clean)
         result.extra["full"] = True
         result.extra["accounted_size"] = accounted
         result.extra["accounted_size_human"] = format_size(accounted)
