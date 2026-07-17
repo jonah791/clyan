@@ -7,6 +7,8 @@ import time
 from ..utils.scanner_base import ScanResult, BaseScanner, safe_walk
 from ..utils.size import format_size
 from ..utils.dirtree import dir_total
+from ..utils.system_drive import system_root_path
+from ..utils.system_drive import system_root_path as win_path
 
 
 class LargeFileScanner(BaseScanner):
@@ -31,9 +33,9 @@ class LargeFileScanner(BaseScanner):
 
         # System roots to skip for deep scanning
         _skip_roots = {
-            "C:\\Windows", "C:\\Program Files", "C:\\Program Files (x86)",
-            "C:\\ProgramData", "C:\\$Recycle.Bin", "C:\\System Volume Information",
-            "C:\\Recovery", "C:\\Boot",
+            win_path("Windows"), win_path("Program Files"), win_path("Program Files (x86)"),
+            win_path("ProgramData"), win_path("$Recycle.Bin"), win_path("System Volume Information"),
+            win_path("Recovery"), win_path("Boot"),
         }
 
         large_files: list[tuple[str, int]] = []

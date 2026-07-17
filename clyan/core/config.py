@@ -108,15 +108,15 @@ def _init():
     _PROTECTED.extend([
         # System roots — depth any = protect everything inside
         ProtectedPath("C:\\", depth=0),
-        ProtectedPath("C:\\Windows", depth=-1),
-        ProtectedPath("C:\\Program Files", depth=-1),
-        ProtectedPath("C:\\Program Files (x86)", depth=-1),
-        ProtectedPath("C:\\ProgramData", depth=-1),
-        ProtectedPath("C:\\Recovery", depth=-1),
-        ProtectedPath("C:\\$Recycle.Bin", depth=-1),
-        ProtectedPath("C:\\System Volume Information", depth=-1),
-        ProtectedPath("C:\\Boot", depth=-1),
-        ProtectedPath("C:\\Documents and Settings", depth=-1),
+        ProtectedPath(win_path("Windows"), depth=-1),
+        ProtectedPath(win_path("Program Files"), depth=-1),
+        ProtectedPath(win_path("Program Files (x86)"), depth=-1),
+        ProtectedPath(win_path("ProgramData"), depth=-1),
+        ProtectedPath(win_path("Recovery"), depth=-1),
+        ProtectedPath(win_path("$Recycle.Bin"), depth=-1),
+        ProtectedPath(win_path("System Volume Information"), depth=-1),
+        ProtectedPath(win_path("Boot"), depth=-1),
+        ProtectedPath(win_path("Documents and Settings"), depth=-1),
 
         # User profile — protect at depth 1 (direct children, not sub-items of exempt dirs)
         ProtectedPath(userprofile, depth=1),
@@ -219,6 +219,7 @@ def _any_trusted(norm: str) -> bool:
     """Check if path or any ancestor is in the trusted list."""
     try:
         from .history import trust_list as _tl
+from ..utils.system_drive import system_root_path as win_path
         trusted = _tl()
         nl = norm.lower()
         for tp in trusted:

@@ -8,6 +8,8 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from ..utils.scanner_base import ScanResult, BaseScanner, safe_walk
 from ..utils.size import format_size
+from ..utils.system_drive import system_root_path
+from ..utils.system_drive import system_root_path as win_path
 
 
 # ── P3: Persistent hash cache for duplicate detection ──
@@ -136,8 +138,8 @@ def _find_duplicates(root: str) -> list[dict]:
     skipped = 0
 
     skip_roots = {
-        "C:\\Windows", "C:\\Program Files", "C:\\Program Files (x86)",
-        "C:\\ProgramData", "C:\\Recovery", "C:\\Boot",
+        win_path("Windows"), win_path("Program Files"), win_path("Program Files (x86)"),
+        win_path("ProgramData"), win_path("Recovery"), win_path("Boot"),
     }
 
     # P0 improvement 2: parallel directory traversal

@@ -8,6 +8,8 @@ from ..core.config import DangerLevel, is_protected
 from . import providers
 from .fast_scanner import fast_scan, register_pattern
 from .providers import CacheItem
+from ..utils.system_drive import system_root_path
+from ..utils.system_drive import system_root_path as win_path
 
 
 # Register all directory patterns for unified scanning
@@ -68,8 +70,8 @@ def _safety_for(dir_name: str) -> DangerLevel:
 
 # Skip roots for file-level artifact scan (same as in fast_scanner)
 _SKIP_ROOTS = {
-    "C:\\Windows", "C:\\Program Files", "C:\\Program Files (x86)",
-    "C:\\ProgramData", "C:\\Recovery", "C:\\Boot",
+    win_path("Windows"), win_path("Program Files"), win_path("Program Files (x86)"),
+    win_path("ProgramData"), win_path("Recovery"), win_path("Boot"),
 }
 
 

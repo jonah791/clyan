@@ -9,6 +9,7 @@ import os
 import glob
 from . import CacheItem, SafetyLevel, register
 from ...utils.dirtree import dir_total
+from ..utils.system_drive import system_root_path as win_path
 
 
 def _scan_delivery_opt(root: str) -> list[CacheItem]:
@@ -17,7 +18,7 @@ def _scan_delivery_opt(root: str) -> list[CacheItem]:
     """
     results = []
     base = (
-        os.environ.get("WINDIR", "C:\\Windows")
+        os.environ.get("WINDIR", win_path("Windows"))
         + "\\ServiceProfiles\\NetworkService\\AppData\\Local\\Microsoft\\Windows\\DeliveryOptimization\\Cache"
     )
     if os.path.isdir(base):
@@ -36,7 +37,7 @@ def _scan_delivery_opt(root: str) -> list[CacheItem]:
 def _scan_software_distribution(root: str) -> list[CacheItem]:
     """Windows Update download cache under SoftwareDistribution\\Download."""
     results = []
-    sd = os.path.join(os.environ.get("WINDIR", "C:\\Windows"), "SoftwareDistribution", "Download")
+    sd = os.path.join(os.environ.get("WINDIR", win_path("Windows")), "SoftwareDistribution", "Download")
     if os.path.isdir(sd):
         sz = dir_total(sd)
         if sz > 0:
@@ -123,7 +124,7 @@ def _scan_onedrive_cache(root: str) -> list[CacheItem]:
 def _scan_defender_scan_cache(root: str) -> list[CacheItem]:
     """Windows Defender scan history and quarantine under ProgramData."""
     results = []
-    base = os.path.join(os.environ.get("ProgramData", "C:\\ProgramData"),
+    base = os.path.join(os.environ.get("ProgramData", win_path("ProgramData")),
                         "Microsoft", "Windows Defender")
     if os.path.isdir(base):
         scan_dirs = [
@@ -191,7 +192,7 @@ def _scan_xbox_cache(root: str) -> list[CacheItem]:
 def _scan_old_windows_backups(root: str) -> list[CacheItem]:
     """Old Windows installation backups (Windows.old, $Windows.~BT, etc.)."""
     results = []
-    windir = os.environ.get("WINDIR", "C:\\Windows")
+    windir = os.environ.get("WINDIR", win_path("Windows"))
     candidates = [
         (os.path.join("C:\\", "Windows.old"), "Previous Windows Installation"),
         (os.path.join("C:\\", "$Windows.~BT"), "Windows Setup Temporary Files"),

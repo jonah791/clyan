@@ -11,6 +11,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from ..utils.scanner_base import ScanResult, BaseScanner, safe_walk
 from ..utils.dirtree import dir_total
 from ..utils.size import format_size
+from ..utils.system_drive import system_root_path
+from ..utils.system_drive import system_root_path as win_path
 
 # Glob-like name patterns for non-essential files inside node_modules
 # Modclean's "safe" mode patterns — safe to delete without breaking code.
@@ -134,8 +136,8 @@ def _find_node_waste(root: str) -> list[dict]:
             nm_dirs.append(dirpath)
             dirs.clear()  # Don't recurse into
         elif any(dirpath.startswith(p) for p in (
-            "C:\\Windows", "C:\\Program Files", "C:\\Program Files (x86)",
-            "C:\\ProgramData",
+            win_path("Windows"), win_path("Program Files"), win_path("Program Files (x86)"),
+            win_path("ProgramData"),
         )):
             dirs.clear()
 

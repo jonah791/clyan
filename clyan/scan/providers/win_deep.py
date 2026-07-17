@@ -7,6 +7,7 @@ import time as time_module
 from pathlib import Path
 from . import CacheItem, SafetyLevel, register
 from ...utils.dirtree import dir_total
+from ..utils.system_drive import system_root_path as win_path
 
 
 # Cache the dism /AnalyzeComponentStore result for 6 hours
@@ -40,7 +41,7 @@ def _save_winsxs_cache(store_size: int, reclaimable: int) -> None:
 
 
 def _scan_winsxs(root: str) -> list[CacheItem]:
-    windir = os.environ.get("WINDIR", "C:\\Windows")
+    windir = os.environ.get("WINDIR", win_path("Windows"))
     winsxs = os.path.join(windir, "WinSxS")
     if not os.path.isdir(winsxs):
         return []
@@ -109,7 +110,7 @@ def _scan_windows_old(root: str) -> list[CacheItem]:
 
 def _scan_driver_store(root: str) -> list[CacheItem]:
     results = []
-    windir = os.environ.get("WINDIR", "C:\\Windows")
+    windir = os.environ.get("WINDIR", win_path("Windows"))
     drv = os.path.join(windir, "System32", "DriverStore", "FileRepository")
     if os.path.isdir(drv):
         sz = dir_total(drv)
@@ -125,7 +126,7 @@ def _scan_driver_store(root: str) -> list[CacheItem]:
 
 def _scan_dotnet_ngen(root: str) -> list[CacheItem]:
     results = []
-    windir = os.environ.get("WINDIR", "C:\\Windows")
+    windir = os.environ.get("WINDIR", win_path("Windows"))
     for asm_dir in glob.glob(os.path.join(windir, "assembly", "NativeImages_v*")):
         if os.path.isdir(asm_dir):
             sz = dir_total(asm_dir)
@@ -142,7 +143,7 @@ def _scan_dotnet_ngen(root: str) -> list[CacheItem]:
 
 def _scan_delivery_opt(root: str) -> list[CacheItem]:
     results = []
-    do_cache = os.path.join(os.environ.get("WINDIR", "C:\\Windows"),
+    do_cache = os.path.join(os.environ.get("WINDIR", win_path("Windows")),
                             "ServiceProfiles", "NetworkService", "AppData",
                             "Local", "Microsoft", "Windows", "DeliveryOptimization", "Cache")
     if os.path.isdir(do_cache):
@@ -159,7 +160,7 @@ def _scan_delivery_opt(root: str) -> list[CacheItem]:
 
 def _scan_cleanmgr(root: str) -> list[CacheItem]:
     cleanmgr_path = os.path.join(
-        os.environ.get("WINDIR", "C:\\Windows"), "System32", "cleanmgr.exe"
+        os.environ.get("WINDIR", win_path("Windows")), "System32", "cleanmgr.exe"
     )
     if not os.path.isfile(cleanmgr_path):
         return []
