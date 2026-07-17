@@ -53,19 +53,20 @@ def _ok(data: dict) -> list[TextContent]:
 TOOLS = [
     Tool(
         name="scan",
-        description="Universal scanner: garbage + system + browsers. Returns items with confidence/impact attached. AI should analyze return value and pass relevant items to clean_propose.",
+        description="Universal scanner. Returns items[] with provider, safety (safe/caution/unsafe), confidence (0-1), recovery_cost (none/low/medium/high), ecosystem, would_break, would_affect. AI: scan -> analyze -> clean_propose.",
         inputSchema={
             "type": "object",
             "properties": {
                 "path": {"type": "string", "description": "Root path (default: user home)"},
                 "include_duplicates": {"type": "boolean", "description": "Also scan for duplicate files (slower)"},
                 "phase": {"type": "string", "enum": ["quick", "full"], "description": "quick (default) = providers only; full = all scanners"},
+                "path": {"type": "string", "description": "Root path (default: user home)"},
             },
         },
     ),
     Tool(
         name="scan_disk",
-        description="Disk space tree: capacity + largest directories + reclaimable estimate.",
+        description="Disk space tree. Returns disk{total/used/free_human}, top_dirs[{size_human, cleanable, cleanable_pct}], gap_analysis, inaccessible[], root_files[]. Supports full (deeper) and clean (garbage classification).",
         inputSchema={
             "type": "object",
             "properties": {
@@ -76,7 +77,7 @@ TOOLS = [
     ),
     Tool(
         name="clean_propose",
-        description="Receive items → enrich with confidence → return action_id + preview. Items NOT deleted yet — call clean_confirm to execute.",
+        description="Prepare items for deletion. Returns action_id + impact. Items need path+size. Call clean_confirm to execute.",
         inputSchema={
             "type": "object",
             "properties": {
@@ -91,7 +92,7 @@ TOOLS = [
     ),
     Tool(
         name="clean_confirm",
-        description="Execute a prior clean_propose by action_id. Returns actual delete result + freed space.",
+        description="Execute a prior clean_propose. Pass action_id from clean_propose. Returns {success_count, fail_count, total_freed_human, before_free, after_free}. Items go to recycle bin.",
         inputSchema={
             "type": "object",
             "properties": {
@@ -102,7 +103,7 @@ TOOLS = [
     ),
     Tool(
         name="system_health",
-        description="Single-call health: disk usage + reclaimable summary + clean history + provider feedback.",
+        description="One-shot disk health. Returns disk{total/used/free_human}, top_dirs[6], reclaimable, trend[5 snapshots], provider_feedback. First call to assess state.",
         inputSchema={
             "type": "object",
             "properties": {
@@ -112,7 +113,7 @@ TOOLS = [
     ),
     Tool(
         name="history",
-        description="View cleanup history. Pass op_id for one operation, or limit for recent list.",
+        description="View cleanup operations. Pass op_id for detail or limit for recent list. Returns ops with {operation_id, action, freed_human, timestamp}. AI: history -> maybe undo.",
         inputSchema={
             "type": "object",
             "properties": {
@@ -123,7 +124,7 @@ TOOLS = [
     ),
     Tool(
         name="undo",
-        description="Undo a cleanup operation (restore from recycle bin where possible).",
+        description="Restore deleted items from recycle bin. Requires op_id from history. Returns {operation_id, undone}. Only recycle bin items. AI: history first -> undo.",
         inputSchema={
             "type": "object",
             "properties": {
@@ -229,10 +230,11 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent]:
             path = arguments.get("path", "C:\\")
             depth = arguments.get("depth", 2)
             full = arguments.get("full", False)
+            clean = arguments.get("clean", False)
             from .scan.disk_summary import is_admin as _is_admin
             if full and not _is_admin():
                 pass  # scan_disk will report inaccessible dirs
-            result = scan_disk_fn(path=path, depth=depth, full=full)
+            result = scan_disk_fn(path=path, depth=depth, full=full, clean=clean)
             return _ok(result.to_dict())
 
         # ── clean_propose ────────────────────────────
