@@ -50,27 +50,111 @@ def _quick_size(path: str) -> int:
     return total
 
 
-def _scan_tree(path: str, depth: int, top_n: int = 15,
-               full: bool = False, is_top: bool = True,
-               max_time: float | None = None,
-               _start: float | None = None) -> tuple[list[dict], list[str]]:
-    """Walk directory tree, return (items, inaccessible).
+def _full_scan_one_pass(path: str, root_drive: str,
+                         max_time: float = 120) -> tuple[list[dict], list[dict], list[str], float]:
+    """Single-pass full scan of entire C: drive.
     
-    full=True: force full recursion, auto-dive into every dir > 500 MB.
-    depth=0: fully recursive (no limit) — classic mode.
-    max_time: soft timeout in seconds.
+    Walks every file/dir exactly ONCE using os.walk.
+    Returns (top_dirs, root_files, inaccessible, accounted_size).
     """
-    if _start is None:
-        _start = time.time()
+    _start = time.time()
+    # Accumulators: dirpath -> total recursive size
+    dir_sizes: dict[str, int] = {}
+    root_file_sizes: dict[str, int] = {}
+    inaccessible: list[str] = []
+
+    # Skip these paths entirely
+    skip_roots = {os.path.join(root_drive, s).lower() for s in _SKIP}
+    skip_roots.add(os.path.join(root_drive, "$Recycle.Bin").lower())
+
+    total_size = 0
+    for dirpath, dirnames, filenames in os.walk(root_drive):
+        if (time.time() - _start) > max_time:
+            inaccessible.append(f"(timeout at {dirpath})")
+            break
+
+        dp_lower = dirpath.lower()
+        if dirpath == root_drive.rstrip("\\"):
+            # Root level: don't skip anything yet
+            pass
+        else:
+            # Check if any ancestor is a skip dir
+            parent_skip = any(dp_lower.startswith(s) for s in skip_roots
+                              if s != root_drive.lower())
+            if parent_skip:
+                dirnames.clear()
+                continue
+
+            # Check if THIS dir should be skipped
+            if any(s == dp_lower for s in skip_roots):
+                dirnames.clear()
+                continue
+
+        # Ensure this path has an entry
+        dir_sizes.setdefault(dirpath, 0)
+
+        for f in filenames:
+            try:
+                fp = os.path.join(dirpath, f)
+                sz = os.path.getsize(fp)
+                total_size += sz
+                # Add to every ancestor directory
+                p = dirpath
+                while True:
+                    dir_sizes[p] = dir_sizes.get(p, 0) + sz
+                    if p == root_drive.rstrip("\\"):
+                        break
+                    p = os.path.dirname(p)
+            except Exception:
+                pass
+
+        # Filter dirnames to avoid deep recursion into slow areas
+        # Keep at most 1000 subdirs per level
+        if len(dirnames) > 1000:
+            dirnames.sort()
+            del dirnames[1000:]
+
+    # Build results for top-level dirs
+    top_items = []
+    try:
+        with os.scandir(root_drive) as it:
+            for e in it:
+                if e.is_dir():
+                    if e.name in _SKIP:
+                        continue
+                    sz = dir_sizes.get(e.path, 0)
+                    if sz > 0:
+                        top_items.append({
+                            "name": e.name, "path": e.path,
+                            "size": sz, "size_human": format_size(sz),
+                        })
+                elif e.is_file():
+                    try:
+                        sz = e.stat().st_size
+                        if sz > 10 * 1024 * 1024:  # >10 MB
+                            root_file_sizes[e.name] = sz
+                    except:
+                        pass
+    except Exception:
+        pass
+
+    top_items.sort(key=lambda x: -x["size"])
+    root_files_list = [
+        {"name": k, "size": v, "size_human": format_size(v)}
+        for k, v in sorted(root_file_sizes.items(), key=lambda x: -x[1])
+    ]
+    return top_items[:50], root_files_list, inaccessible, total_size
+
+
+def _scan_tree(path: str, depth: int, top_n: int = 15,
+               is_top: bool = True) -> tuple[list[dict], list[str]]:
+    """Bounded-depth directory tree scan (original mode)."""
     items: list[dict] = []
     inaccessible: list[str] = []
 
     try:
         with os.scandir(path) as it:
             for e in it:
-                if max_time and (time.time() - _start) > max_time:
-                    inaccessible.append("(timeout)")
-                    break
                 try:
                     if not e.is_dir(follow_symlinks=False):
                         continue
@@ -78,14 +162,7 @@ def _scan_tree(path: str, depth: int, top_n: int = 15,
                         inaccessible.append(e.path)
                         continue
 
-                    # Determine recursion depth for dir_total
-                    if full:
-                        max_walk = -1  # fully recursive
-                    elif is_top:
-                        max_walk = 3  # top level: 3 levels deep
-                    else:
-                        max_walk = max(depth, 1) if depth > 0 else -1
-
+                    max_walk = 3 if is_top else max(depth, 1) if depth > 0 else -1
                     sz = dir_total(e.path, max_depth=max_walk)
                     if sz == 0:
                         sz = _quick_size(e.path)
@@ -97,20 +174,10 @@ def _scan_tree(path: str, depth: int, top_n: int = 15,
                         "size": sz, "size_human": format_size(sz),
                     }
 
-                    # Recurse deeper
-                    recurse = False
-                    if full and sz >= 500 * 1024 * 1024:
-                        recurse = True
-                    elif depth == 0:
-                        recurse = True
-                    elif depth > 1 and sz >= 100 * 1024 * 1024:
-                        recurse = True
-
-                    if recurse:
+                    if depth > 1 and sz >= 100 * 1024 * 1024:
                         children, child_inacc = _scan_tree(
-                            e.path, max(depth - 1, 0) if depth > 0 else 0,
-                            min(top_n, 8), full=full, is_top=False,
-                            max_time=max_time, _start=_start)
+                            e.path, depth - 1,
+                            min(top_n, 8), is_top=False)
                         if children:
                             node["children"] = children
                         inaccessible.extend(child_inacc)
@@ -187,44 +254,47 @@ def scan_disk(path: str = "C:\\", depth: int = 2, top_n: int = 15,
         path: Drive or directory to scan
         depth: Directory depth (0 = full recursive, 1 = one level, etc.)
         top_n: Max items per level
-        full: Force full recursion into all large directories (>500 MB)
-              Uses dir_total(-1) for accurate sizing of each node.
+        full: Force SINGLE-PASS full scan. Walks every file/dir ONCE. 
+              Slower (1-2 min) but accounts for ALL space.
     """
     start = time.time()
     result = ScanResult()
+    root_drive = os.path.splitdrive(os.path.abspath(path))[0] + "\\"
 
     total, free, used = _get_disk_free_space(path)
-    usage_pct = round(used / total * 100, 1) if total > 0 else 0
 
+    if full:
+        # ── Single-pass full scan ──
+        tree, root_files, inaccessible, accounted = _full_scan_one_pass(
+            path, root_drive, max_time=120)
+        result.extra["full"] = True
+        result.extra["accounted_size"] = accounted
+        result.extra["accounted_size_human"] = format_size(accounted)
+    else:
+        # ── Bounded-depth scan ──
+        tree, inaccessible = _scan_tree(path, depth, top_n)
+        root_files = _account_root_files(root_drive)
+        accounted = sum(n["size"] for n in tree) + sum(v["size"] for v in root_files)
+
+    usage_pct = round(used / total * 100, 1) if total > 0 else 0
     result.extra["disk"] = {
-        "path": os.path.splitdrive(os.path.abspath(path))[0] + "\\",
+        "path": root_drive,
         "total": total, "total_human": format_size(total),
         "used": used, "used_human": format_size(used),
         "free": free, "free_human": format_size(free),
         "usage_percent": usage_pct,
     }
-
-    # Scan tree
-    max_time = 120 if full else None  # 2 min soft timeout for full scan
-    tree, inaccessible = _scan_tree(path, depth, top_n, full=full,
-                                     max_time=max_time, _start=start)
     result.extra["top_dirs"] = tree
+    result.extra["root_files"] = root_files
 
-    # Track inaccessible dirs
-    inaccessible_dirs = [p for p in inaccessible if p != "(timeout)"]
-    had_timeout = "(timeout)" in inaccessible
+    # Inaccessible
+    inaccessible_dirs = [p for p in inaccessible if not p.startswith("(timeout)")]
+    had_timeout = any(p.startswith("(timeout)") for p in inaccessible)
     result.extra["inaccessible"] = [
         {"path": p, "reason": "permission denied"}
         for p in inaccessible_dirs[:50]
     ]
-
-    # System root files
-    root_drive = os.path.splitdrive(os.path.abspath(path))[0] + "\\"
-    root_files = _account_root_files(root_drive)
-    result.extra["root_files"] = [
-        {"name": k, "size": v, "size_human": format_size(v)}
-        for k, v in sorted(root_files.items(), key=lambda x: -x[1])
-    ]
+    result.extra["inaccessible_count"] = len(inaccessible_dirs)
 
     # Categories
     cats: dict[str, int] = {}
@@ -243,8 +313,7 @@ def scan_disk(path: str = "C:\\", depth: int = 2, top_n: int = 15,
     if tmp and os.path.isdir(tmp):
         sz = dir_total(tmp)
         if sz > 0:
-            garbage_total += sz
-            gb["临时文件"] = sz
+            garbage_total += sz; gb["临时文件"] = sz
     for key, label in [("chrome", "Chrome"), ("chrome_code_cache", "Chrome"),
                        ("edge", "Edge"), ("edge_code_cache", "Edge"),
                        ("firefox", "Firefox")]:
@@ -252,41 +321,30 @@ def scan_disk(path: str = "C:\\", depth: int = 2, top_n: int = 15,
         if p and os.path.isdir(p):
             sz = dir_total(p)
             if sz > 0:
-                k = f"{label} 缓存"
-                gb[k] = gb.get(k, 0) + sz
+                k = f"{label} 缓存"; gb[k] = gb.get(k, 0) + sz
     result.extra["reclaimable"] = {
         "total": garbage_total, "total_human": format_size(garbage_total),
         "breakdown": [{"label": k, "size": v, "size_human": format_size(v)}
                       for k, v in sorted(gb.items(), key=lambda x: -x[1])],
     }
 
-    # Gap analysis
-    accounted = sum(n["size"] for n in tree) + sum(v for v in root_files.values())
+    # Gap
+    root_file_total = sum(v.get("size", 0) for v in root_files) if root_files else 0
     gap = max(0, used - accounted)
-    inaccessible_known = sum(
-        os.path.getsize(os.path.join(root_drive, d))
-        for d in ["$Recycle.Bin", "System Volume Information"]
-        if os.path.isdir(os.path.join(root_drive, d))
-    )
     result.extra["gap_analysis"] = {
         "total_used": used,
         "total_used_human": format_size(used),
-        "accounted_dirs": sum(n["size"] for n in tree),
-        "accounted_dirs_human": format_size(sum(n["size"] for n in tree)),
-        "accounted_root_files": sum(v for v in root_files.values()),
-        "accounted_root_files_human": format_size(sum(v for v in root_files.values())),
+        "accounted_total": accounted,
+        "accounted_total_human": format_size(accounted),
         "gap": gap,
         "gap_human": format_size(gap),
         "gap_pct": round(gap / max(used, 1) * 100, 1),
-        "breakdown": {
-            "system_protected_estimate": min(gap, inaccessible_known),
-            "depth_limited": max(0, gap - inaccessible_known) if not full else 0,
-            "timeout": had_timeout,
-        },
+        "full_scan_mode": full,
+        "timeout": had_timeout,
+        "inaccessible_count": len(inaccessible_dirs),
     }
     result.extra["gap_size"] = gap
     result.extra["gap_size_human"] = format_size(gap)
-    result.extra["inaccessible_count"] = len(inaccessible_dirs)
 
     result.total_size = used
     result.scan_time_ms = (time.time() - start) * 1000
