@@ -228,7 +228,8 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent]:
         elif name == "scan_disk":
             path = arguments.get("path", "C:\\")
             depth = arguments.get("depth", 2)
-            result = scan_disk_fn(path=path, depth=depth)
+            full = arguments.get("full", False)
+            result = scan_disk_fn(path=path, depth=depth, full=full)
             return _ok(result.to_dict())
 
         # ── clean_propose ────────────────────────────
