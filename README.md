@@ -1,4 +1,4 @@
-# Clyan — 给 AI Agent 的磁盘本体感觉
+# Clyan — AI-Driven Disk Cleaner v2.9.0 — 给 AI Agent 的磁盘本体感觉
 
 > **自用非商用开源项目** · AGPL · 一个 AI 知道它"有多满"的磁盘工具
 
