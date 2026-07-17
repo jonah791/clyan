@@ -188,10 +188,10 @@ clyan mcp
 | `undo <id>` | 撤销清理 |
 | `trust add/remove/list` | 受信任路径（跳过保护警告） |
 | `import winapp2 <file>` | 导入 Winapp2.ini |
-| `mcp` | 启动 MCP 服务器（23 工具） |
+| `mcp` | 启动 MCP 服务器（7 个 AI 感知工具） |
 | `schedule --create` | 每周定时清理 |
 
-## MCP 服务器（23 工具）
+## MCP 服务器（7 工具，AI 感知设计）
 
 ```bash
 clyan mcp
