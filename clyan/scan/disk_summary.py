@@ -1,6 +1,6 @@
 """Enhanced disk_summary — deep drill-down + invisible directory tracking + gap analysis."""
 from ..utils.paths import browser_cache_paths
-import os, time, ctypes, ctypes.wintypes
+import os, time, ctypes, ctypes.wintypes, sys
 from ..utils.size import format_size
 from ..utils.dirtree import dir_total
 from ..utils.scanner_base import ScanResult
@@ -14,6 +14,79 @@ _SKIP = {
 
 # System files at drive root that consume significant space
 _SYSTEM_ROOT_FILES = {"pagefile.sys", "hiberfil.sys", "swapfile.sys"}
+
+# ── Privilege elevation ──────────────────────────────────
+
+def is_admin() -> bool:
+    """Check if current process has administrator privileges."""
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin() != 0
+    except Exception:
+        return False
+
+
+def _try_enable_privilege(privilege_name: str) -> bool:
+    """Enable a Windows privilege for this process (e.g. SeBackupPrivilege).
+    
+    SeBackupPrivilege allows reading files regardless of ACL — 
+    enables access to $Recycle.Bin, System Volume Information, etc.
+    """
+    try:
+        # Windows API types
+        class LUID(ctypes.Structure):
+            _fields_ = [("LowPart", ctypes.c_ulong), ("HighPart", ctypes.c_long)]
+
+        class TOKEN_PRIVILEGES(ctypes.Structure):
+            _fields_ = [
+                ("PrivilegeCount", ctypes.c_ulong),
+                ("Luid", LUID),
+                ("Attributes", ctypes.c_ulong),
+            ]
+
+        # Open process token
+        TOKEN_ADJUST_PRIVILEGES = 0x0020
+        TOKEN_QUERY = 0x0008
+        token = ctypes.wintypes.HANDLE()
+        ctypes.windll.advapi32.OpenProcessToken(
+            ctypes.windll.kernel32.GetCurrentProcess(),
+            TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,
+            ctypes.byref(token),
+        )
+
+        # Lookup privilege LUID
+        luid = LUID()
+        ctypes.windll.advapi32.LookupPrivilegeValueW(None, privilege_name, ctypes.byref(luid))
+
+        # Enable the privilege
+        tp = TOKEN_PRIVILEGES()
+        tp.PrivilegeCount = 1
+        tp.Luid = luid
+        tp.Attributes = 0x00000002  # SE_PRIVILEGE_ENABLED
+
+        result = ctypes.windll.advapi32.AdjustTokenPrivileges(
+            token, False, ctypes.byref(tp), 0, None, None)
+        ctypes.windll.kernel32.CloseHandle(token)
+        return result != 0
+    except Exception:
+        return False
+
+
+def ensure_scan_privileges() -> tuple[bool, str]:
+    """Attempt to gain necessary privileges for full disk scan.
+    
+    Returns (success, message).
+    """
+    if is_admin():
+        # Already admin — try backup privilege
+        if _try_enable_privilege("SeBackupPrivilege"):
+            return True, "Administrator + SeBackupPrivilege enabled"
+        return True, "Administrator (limited by ACL)"
+
+    # Try backup privilege without admin
+    if _try_enable_privilege("SeBackupPrivilege"):
+        return True, "SeBackupPrivilege enabled (limited)"
+
+    return False, "Not running as administrator. Use --elevate to gain full access."
 
 
 def _get_disk_free_space(path: str) -> tuple[int, int, int]:
@@ -55,6 +128,7 @@ def _full_scan_one_pass(path: str, root_drive: str,
     """Parallel full scan using ThreadPoolExecutor.
     
     Walks each top-level directory in its own thread.
+    Respects _SKIP for non-elevated runs.
     Returns (top_dirs, root_files, inaccessible, accounted_size).
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -63,11 +137,26 @@ def _full_scan_one_pass(path: str, root_drive: str,
     inaccessible: list[str] = []
     fs: list = []
 
+    # Check if we have backup privilege — if so, don't skip protected dirs
+    have_backup = _try_enable_privilege("SeBackupPrivilege")
+    skip_set = set() if have_backup else _SKIP
+
     # Collect top-level dirs
     try:
         for e in os.scandir(root_drive):
-            if e.is_dir() and e.name not in _SKIP:
+            if e.is_dir() and e.name not in skip_set:
                 fs.append(e)
+            elif e.is_dir() and e.name in skip_set:
+                # Try to access it if we have backup privilege
+                if have_backup:
+                    try:
+                        # Quick test if we can enter it
+                        next(os.scandir(e.path), None)
+                        fs.append(e)
+                    except Exception:
+                        inaccessible.append(e.path)
+                else:
+                    inaccessible.append(e.path)
     except Exception:
         pass
 

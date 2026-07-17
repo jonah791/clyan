@@ -229,6 +229,9 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent]:
             path = arguments.get("path", "C:\\")
             depth = arguments.get("depth", 2)
             full = arguments.get("full", False)
+            from .scan.disk_summary import is_admin as _is_admin
+            if full and not _is_admin():
+                pass  # scan_disk will report inaccessible dirs
             result = scan_disk_fn(path=path, depth=depth, full=full)
             return _ok(result.to_dict())
 

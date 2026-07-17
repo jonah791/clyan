@@ -18,6 +18,24 @@ def _out(data: dict) -> None:
 
 from .scan.space import SpaceScanner
 from .scan.dev_garbage import DevGarbageScanner
+from .scan.disk_summary import is_admin
+
+
+def _elevate_and_rerun() -> None:
+    """Re-launch current command as administrator."""
+    import subprocess, ctypes
+    import subprocess
+    cmd = [sys.executable, "-m", "clyan"] + sys.argv[1:]
+    # Remove --elevate to avoid loop
+    while "--elevate" in cmd:
+        cmd.remove("--elevate")
+    print("Requesting administrator privileges...", file=sys.stderr)
+    ctypes.windll.shell32.ShellExecuteW(
+        None, "runas", sys.executable,
+        subprocess.list2cmdline(cmd[1:]),
+        None, 1
+    )
+    sys.exit(0)
 from .scan.browser_cache import BrowserCacheScanner
 from .scan.system import SystemScanner
 from .scan.duplicates import DuplicateScanner
@@ -152,7 +170,15 @@ def cmd_scan_quick(args: argparse.Namespace) -> None:
 def cmd_scan_disk(args: argparse.Namespace) -> None:
     reset_dir_total_cache()
     depth = getattr(args, "depth", 2)
-    result = scan_disk(args.path, depth=depth)
+    full = getattr(args, "full", False)
+    elevate = getattr(args, "elevate", False)
+    
+    # Request elevation if needed
+    if elevate or (full and not is_admin()):
+        _elevate_and_rerun()
+        return
+    
+    result = scan_disk(args.path, depth=depth, full=full)
     d = result.to_dict()
 
     # Auto-record snapshot for trend tracking
@@ -756,6 +782,10 @@ def build_parser() -> argparse.ArgumentParser:
                          help="how many levels to show (default: 2)")
     sp_disk.add_argument("--trend", action="store_true",
                          help="show disk usage history (requires prior snapshots)")
+    sp_disk.add_argument("--full", action="store_true",
+                         help="single-pass full scan (covers more space, slower)")
+    sp_disk.add_argument("--elevate", action="store_true",
+                         help="re-launch as administrator for full access")
 
     sp_files = sp_sub.add_parser("files", help="[legacy] find largest files")
     sp_files.add_argument("path", nargs="?", default="C:\\",
