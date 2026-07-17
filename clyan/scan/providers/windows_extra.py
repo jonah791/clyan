@@ -9,7 +9,7 @@ import os
 import glob
 from . import CacheItem, SafetyLevel, register
 from ...utils.dirtree import dir_total
-from ..utils.system_drive import system_root_path as win_path
+from ...utils.system_drive import system_root_path as win_path
 
 
 def _scan_delivery_opt(root: str) -> list[CacheItem]:

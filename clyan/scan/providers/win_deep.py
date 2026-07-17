@@ -7,7 +7,7 @@ import time as time_module
 from pathlib import Path
 from . import CacheItem, SafetyLevel, register
 from ...utils.dirtree import dir_total
-from ..utils.system_drive import system_root_path as win_path
+from ...utils.system_drive import system_root_path as win_path
 
 
 # Cache the dism /AnalyzeComponentStore result for 6 hours

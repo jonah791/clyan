@@ -219,7 +219,6 @@ def _any_trusted(norm: str) -> bool:
     """Check if path or any ancestor is in the trusted list."""
     try:
         from .history import trust_list as _tl
-from ..utils.system_drive import system_root_path as win_path
         trusted = _tl()
         nl = norm.lower()
         for tp in trusted:
