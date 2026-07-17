@@ -21,5 +21,5 @@ def test_cache_not_protected():
 
 if __name__ == "__main__":
     test_system_protected()
-    test_user_not_protected()
+    test_user_protected()
     print("All core tests passed!")
