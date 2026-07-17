@@ -357,7 +357,9 @@ def scan_disk(path: str = "C:\\", depth: int = 2, top_n: int = 15,
         # ── Bounded-depth scan ──
         tree, inaccessible = _scan_tree(path, depth, top_n)
         root_files = _account_root_files(root_drive)
-        accounted = sum(n["size"] for n in tree) + sum(v["size"] for v in root_files)
+        root_list = [{"name": k, "size": v, "size_human": format_size(v)}
+                     for k, v in root_files.items()]
+        accounted = sum(n["size"] for n in tree) + sum(v for v in root_files.values())
 
     usage_pct = round(used / total * 100, 1) if total > 0 else 0
     result.extra["disk"] = {
@@ -368,7 +370,7 @@ def scan_disk(path: str = "C:\\", depth: int = 2, top_n: int = 15,
         "usage_percent": usage_pct,
     }
     result.extra["top_dirs"] = tree
-    result.extra["root_files"] = root_files
+    result.extra["root_files"] = root_files if isinstance(root_files, list) else root_list
 
     # Inaccessible
     inaccessible_dirs = [p for p in inaccessible if not p.startswith("(timeout)")]
@@ -412,7 +414,12 @@ def scan_disk(path: str = "C:\\", depth: int = 2, top_n: int = 15,
     }
 
     # Gap
-    root_file_total = sum(v.get("size", 0) for v in root_files) if root_files else 0
+    root_file_total = 0
+    if root_files:
+        if isinstance(root_files, list):
+            root_file_total = sum(v.get("size", 0) for v in root_files)
+        else:
+            root_file_total = sum(v for v in root_files.values())
     gap = max(0, used - accounted)
     result.extra["gap_analysis"] = {
         "total_used": used,
