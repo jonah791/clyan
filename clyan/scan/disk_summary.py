@@ -51,99 +51,93 @@ def _quick_size(path: str) -> int:
 
 
 def _full_scan_one_pass(path: str, root_drive: str,
-                         max_time: float = 120) -> tuple[list[dict], list[dict], list[str], float]:
-    """Single-pass full scan of entire C: drive.
+                         max_time: float = 150) -> tuple[list[dict], list[dict], list[str], float]:
+    """Parallel full scan using ThreadPoolExecutor.
     
-    Walks every file/dir exactly ONCE using os.walk.
+    Walks each top-level directory in its own thread.
     Returns (top_dirs, root_files, inaccessible, accounted_size).
     """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     _start = time.time()
-    # Accumulators: dirpath -> total recursive size
     dir_sizes: dict[str, int] = {}
-    root_file_sizes: dict[str, int] = {}
     inaccessible: list[str] = []
+    fs: list = []
 
-    # Skip these paths entirely
-    skip_roots = {os.path.join(root_drive, s).lower() for s in _SKIP}
-    skip_roots.add(os.path.join(root_drive, "$Recycle.Bin").lower())
-
-    total_size = 0
-    for dirpath, dirnames, filenames in os.walk(root_drive):
-        if (time.time() - _start) > max_time:
-            inaccessible.append(f"(timeout at {dirpath})")
-            break
-
-        dp_lower = dirpath.lower()
-        if dirpath == root_drive.rstrip("\\"):
-            # Root level: don't skip anything yet
-            pass
-        else:
-            # Check if any ancestor is a skip dir
-            parent_skip = any(dp_lower.startswith(s) for s in skip_roots
-                              if s != root_drive.lower())
-            if parent_skip:
-                dirnames.clear()
-                continue
-
-            # Check if THIS dir should be skipped
-            if any(s == dp_lower for s in skip_roots):
-                dirnames.clear()
-                continue
-
-        # Ensure this path has an entry
-        dir_sizes.setdefault(dirpath, 0)
-
-        for f in filenames:
-            try:
-                fp = os.path.join(dirpath, f)
-                sz = os.path.getsize(fp)
-                total_size += sz
-                # Add to every ancestor directory
-                p = dirpath
-                while True:
-                    dir_sizes[p] = dir_sizes.get(p, 0) + sz
-                    if p == root_drive.rstrip("\\"):
-                        break
-                    p = os.path.dirname(p)
-            except Exception:
-                pass
-
-        # Filter dirnames to avoid deep recursion into slow areas
-        # Keep at most 1000 subdirs per level
-        if len(dirnames) > 1000:
-            dirnames.sort()
-            del dirnames[1000:]
-
-    # Build results for top-level dirs
-    top_items = []
+    # Collect top-level dirs
     try:
-        with os.scandir(root_drive) as it:
-            for e in it:
-                if e.is_dir():
-                    if e.name in _SKIP:
-                        continue
-                    sz = dir_sizes.get(e.path, 0)
-                    if sz > 0:
-                        top_items.append({
-                            "name": e.name, "path": e.path,
-                            "size": sz, "size_human": format_size(sz),
-                        })
-                elif e.is_file():
-                    try:
-                        sz = e.stat().st_size
-                        if sz > 10 * 1024 * 1024:  # >10 MB
-                            root_file_sizes[e.name] = sz
-                    except:
-                        pass
+        for e in os.scandir(root_drive):
+            if e.is_dir() and e.name not in _SKIP:
+                fs.append(e)
     except Exception:
         pass
 
+    def _walk_one(ep: str) -> tuple[str, int]:
+        """Full recursive walk of a single directory."""
+        t0 = time.time()
+        total = 0
+        try:
+            for r, _, files in os.walk(ep):
+                for f in files:
+                    try:
+                        total += os.path.getsize(os.path.join(r, f))
+                    except Exception:
+                        pass
+                if (time.time() - t0) > max_time * 0.7:
+                    break
+        except Exception:
+            pass
+        return ep, total
+
+    # Walk each top-level dir in parallel
+    with ThreadPoolExecutor(max_workers=min(len(fs), 8)) as pool:
+        fut_map = {pool.submit(_walk_one, e.path): e.name for e in fs}
+        for f in as_completed(fut_map):
+            if (time.time() - _start) > max_time:
+                for remaining in fut_map:
+                    if not remaining.done():
+                        inaccessible.append(f"(timeout: {fut_map[remaining]})")
+                break
+            try:
+                ep, sz = f.result()
+                dir_sizes[ep] = sz
+            except Exception:
+                pass
+
+    # Build results
+    top_items = []
+    for e in fs:
+        sz = dir_sizes.get(e.path, 0)
+        if sz > 0:
+            top_items.append({
+                "name": e.name, "path": e.path,
+                "size": sz, "size_human": format_size(sz),
+            })
+
+    # Track which dirs were skipped (not walked)
+    for e in os.scandir(root_drive):
+        if e.is_dir() and e.name not in {x["name"] for x in top_items}:
+            if e.name not in _SKIP:
+                inaccessible.append(e.path)
+
+    # Root files
+    root_file_sizes = {}
+    try:
+        for e in os.scandir(root_drive):
+            if e.is_file():
+                try:
+                    sz = e.stat().st_size
+                    if sz > 10 * 1024 * 1024:
+                        root_file_sizes[e.name] = sz
+                except:
+                    pass
+    except:
+        pass
+
     top_items.sort(key=lambda x: -x["size"])
-    root_files_list = [
-        {"name": k, "size": v, "size_human": format_size(v)}
-        for k, v in sorted(root_file_sizes.items(), key=lambda x: -x[1])
-    ]
-    return top_items[:50], root_files_list, inaccessible, total_size
+    root_list = [{"name": k, "size": v, "size_human": format_size(v)}
+                 for k, v in sorted(root_file_sizes.items(), key=lambda x: -x[1])]
+    accounted = sum(x["size"] for x in top_items) + sum(v for v in root_file_sizes.values())
+    return top_items[:50], root_list, inaccessible, accounted
 
 
 def _scan_tree(path: str, depth: int, top_n: int = 15,
