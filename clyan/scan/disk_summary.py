@@ -15,6 +15,46 @@ _SKIP = {
 # System files at drive root that consume significant space
 _SYSTEM_ROOT_FILES = {"pagefile.sys", "hiberfil.sys", "swapfile.sys"}
 
+
+def _get_recycle_bin_size() -> int:
+    """Query Recycle Bin total size via Shell API (no admin needed)."""
+    try:
+        class SHQUERYRBINFO(ctypes.Structure):
+            _fields_ = [
+                ("cbSize", ctypes.c_ulong),
+                ("i64Size", ctypes.c_longlong),
+                ("i64NumItems", ctypes.c_longlong),
+            ]
+        info = SHQUERYRBINFO()
+        info.cbSize = ctypes.sizeof(SHQUERYRBINFO)
+        ctypes.windll.shell32.SHQueryRecycleBinW(None, ctypes.byref(info))
+        return info.i64Size
+    except Exception:
+        return 0
+
+
+def _probe_protected_dirs(root_drive: str) -> dict[str, int]:
+    """Try to measure system-protected directories.
+    
+    Uses SHQueryRecycleBin for Recycle Bin (works without admin).
+    Other system dirs require admin — reported as 0 with note.
+    """
+    results: dict[str, int] = {}
+    
+    # Recycle Bin via Shell API (works without admin)
+    rb_size = _get_recycle_bin_size()
+    if rb_size > 0:
+        results["$Recycle.Bin"] = rb_size
+    
+    # Other protected dirs: mark as attempted but need admin
+    for name in ["System Volume Information", "Boot", "Recovery",
+                 "$Windows.~WS", "Config.Msi", "$SysReset"]:
+        p = os.path.join(root_drive, name)
+        if os.path.isdir(p):
+            results[name] = 0  # needs admin to measure
+    
+    return results
+
 # ── Privilege elevation ──────────────────────────────────
 
 def is_admin() -> bool:
