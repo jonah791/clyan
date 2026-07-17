@@ -97,6 +97,7 @@ _EXEMPT: list[ExemptPath] = []
 def _init():
     if _PROTECTED:
         return
+    from ..utils.system_drive import system_root_path as win_path
 
     userprofile = os.environ.get("USERPROFILE", "C:\\Users\\unknown").lower()
 

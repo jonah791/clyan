@@ -14,7 +14,7 @@ def test_user_protected():
     assert is_protected(user + "\\Documents")
     print("  PASS test_user_protected")
 
-def test_cache_not_protected():
+def test_temp_not_protected():
     assert not is_protected("C:\\Projects\\node_modules")
     assert not is_protected("D:\\cache\\temp")
     print("  PASS test_cache_not_protected")
