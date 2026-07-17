@@ -5,6 +5,7 @@ from ..utils.size import format_size
 from ..utils.dirtree import dir_total
 from ..utils.scanner_base import ScanResult
 from ..reflex import _refresh_pulse_cache
+from ..utils.garbage_rules import classify_file as _classify_file
 
 _SKIP = {
     "$Recycle.Bin", "System Volume Information", "Recovery",
@@ -202,22 +203,29 @@ def _full_scan_one_pass(path: str, root_drive: str,
     except Exception:
         pass
 
-    def _walk_one(ep: str) -> tuple[str, int]:
-        """Full recursive walk of a single directory."""
+    def _walk_one(ep: str) -> tuple[str, int, int]:
         t0 = time.time()
         total = 0
+        cleanable = 0
         try:
             for r, _, files in os.walk(ep):
                 for f in files:
                     try:
-                        total += os.path.getsize(os.path.join(r, f))
+                        fp = os.path.join(r, f)
+                        st = os.stat(fp)
+                        sz = st.st_size
+                        total += sz
+                        if classify_garbage:
+                            rule_name, conf = _classify_file(fp, sz, st.st_mtime)
+                            if conf >= 0.7:
+                                cleanable += sz
                     except Exception:
                         pass
                 if (time.time() - t0) > max_time * 0.7:
                     break
         except Exception:
             pass
-        return ep, total
+        return ep, total, cleanable
 
     # Walk each top-level dir in parallel
     with ThreadPoolExecutor(max_workers=min(len(fs), 8)) as pool:
